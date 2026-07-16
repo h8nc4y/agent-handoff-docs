@@ -1,0 +1,66 @@
+name: Bug report
+description: Report a sanitized problem with the skill, templates, or examples.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem. Do not paste tokens, credentials, raw agent transcripts or handoff files with private data, private repository names, or internal absolute paths.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Describe the observable problem without private data.
+      placeholder: Following the skill's migration order, durable content was still lost because...
+    validations:
+      required: true
+  - type: dropdown
+    id: symptom
+    attributes:
+      label: Symptom class
+      options:
+        - Canonical-scope guidance conflict (two documents claim the same fact)
+        - Living-handoff discipline issue (size budget / compression / do-not-re-read)
+        - Migration order lost or orphaned content
+        - Template error (placeholder, structure, EN/JA mismatch)
+        - Verification guidance issue (full-scan / unverified checklist)
+        - Task-ledger guidance issue (delegation spec / verification-log policy)
+        - Validation or scanner false pass / false failure
+        - Documentation error or unclear guidance
+        - Other sanitized symptom
+    validations:
+      required: true
+  - type: textarea
+    id: sanitized-checks
+    attributes:
+      label: Sanitized checks performed
+      description: Summarize safe facts only. Use placeholder repository, path, and project names.
+      placeholder: |
+        Documents involved: HANDOFF.md, docs/REPORT.md (placeholder names)
+        Step followed: migration order step 3 (fact audit)
+        Scan run: git grep for the old path — zero hits expected, two found
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      placeholder: The do-not-re-read entry should record where the durable content went.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      placeholder: The guidance never says when to write the entry, so it was skipped.
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety confirmation
+      options:
+        - label: I removed tokens, credentials, customer data, private repository names, and internal absolute paths.
+          required: true
