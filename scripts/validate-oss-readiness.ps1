@@ -1,3 +1,8 @@
+﻿# NOTE: Keep this file saved as UTF-8 WITH BOM. It contains a Japanese
+# heading literal (the templates/ja checks below), and Windows PowerShell 5.1
+# parses BOM-less .ps1 files as ANSI — the misread multi-byte bytes can
+# swallow an adjacent quote and break parsing ("The string is missing the
+# terminator"). The BOM makes 5.1 parse the file as UTF-8.
 [CmdletBinding()]
 param(
     [string]$Path = ''

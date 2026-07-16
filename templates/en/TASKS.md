@@ -11,6 +11,10 @@ position (`HANDOFF.md`), history (`docs/REPORT.md` and git log). If this
 ledger disagrees with the repository's observable state (open PRs, CI),
 the repository wins.
 
+<Note: `docs/REPORT.md` has no bundled template — point the reference at
+whatever owns the history role here (git log and PR bodies are fine in
+small repositories).>
+
 Verification-log policy: only the most recent verification run is recorded
 here; older runs live in this file's git history. Do not append run after
 run.

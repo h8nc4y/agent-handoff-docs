@@ -52,8 +52,9 @@ the next reader. The fix is structural, not motivational:
 
 1. **Every document opens with a canonical-scope declaration**: what this
    document is the single source of truth for, and which neighboring facts
-   belong to which other documents. The bundled templates all reserve this
-   block as their first section.
+   belong to which other documents. The bundled templates (under
+   `templates/en/` and `templates/ja/` next to this skill) all reserve
+   this block as their first section.
 2. **One fact, one owner.** Any other document that needs the fact links to
    the owner instead of restating it.
 3. **Reality outranks documents.** Write into the declaration that on
@@ -151,7 +152,10 @@ begin. Contents, in order:
    PR (build, tests, lint, scanners), or a pointer to the single document
    section that owns them.
 4. **Hard gates** — boundaries never to cross without approval (production
-   deploys, external posting, paid APIs, publishing).
+   deploys, external posting, paid APIs, publishing). As with the
+   verification commands, hold the content inline only when no
+   conventions document owns it; when one does (for example `AGENTS.md`),
+   this section becomes a pointer — ownership moves, it is never shared.
 5. **A next-step pointer** — a reference into HANDOFF's next-step section,
    never the next step itself.
 

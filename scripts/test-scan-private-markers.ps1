@@ -90,6 +90,37 @@ try {
         Add-Failure "Expected synthetic marker output to name github-classic-token-prefix. Output: $($markerResult.Output.Trim())"
     }
 
+    # Encoding regression: a marker directly after a multi-byte character must
+    # still be detected when the scanner runs under Windows PowerShell 5.1.
+    # Without an explicit UTF-8 read, 5.1 decodes BOM-less UTF-8 as ANSI and a
+    # misread multi-byte character swallows the following ASCII bytes
+    # (measured false negative). The fixture is written BOM-less on purpose;
+    # the character is built from a code point to keep this file ASCII-only.
+    $encodingRoot = Join-Path $tempRoot 'multibyte-adjacent'
+    New-Item -ItemType Directory -Path $encodingRoot | Out-Null
+    $multiByteContent = 'token after multi-byte char: ' + [char]0x3042 + $syntheticMarker
+    [System.IO.File]::WriteAllText((Join-Path $encodingRoot 'leak.md'), $multiByteContent, [System.Text.UTF8Encoding]::new($false))
+    $encodingResult = Invoke-Scanner -ScanPath $encodingRoot
+    if ($encodingResult.ExitCode -eq 0) {
+        Add-Failure 'Expected multi-byte-adjacent marker fixture to fail, but scanner exited 0.'
+    }
+    if ($encodingResult.Output -notmatch 'github-classic-token-prefix') {
+        Add-Failure "Expected multi-byte-adjacent output to name github-classic-token-prefix. Output: $($encodingResult.Output.Trim())"
+    }
+
+    # Dotfiles such as .env are "all extension" to GetExtension and were once
+    # silently skipped; they must be scanned.
+    $dotfileRoot = Join-Path $tempRoot 'dotfile'
+    New-Item -ItemType Directory -Path $dotfileRoot | Out-Null
+    Set-Content -LiteralPath (Join-Path $dotfileRoot '.env') -Value "value: $syntheticMarker" -Encoding UTF8
+    $dotfileResult = Invoke-Scanner -ScanPath $dotfileRoot
+    if ($dotfileResult.ExitCode -eq 0) {
+        Add-Failure 'Expected .env dotfile fixture to fail, but scanner exited 0.'
+    }
+    if ($dotfileResult.Output -notmatch 'github-classic-token-prefix') {
+        Add-Failure "Expected .env dotfile output to name github-classic-token-prefix. Output: $($dotfileResult.Output.Trim())"
+    }
+
     # Higher-recall cloud / PEM prefixes, with one redaction regression each.
     # Fixtures are synthetic placeholders only; no real secrets are used.
     $prefixCases = @(

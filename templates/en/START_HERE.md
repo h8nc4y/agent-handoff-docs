@@ -8,10 +8,13 @@
 ## Canonical scope of this document
 
 Single source of truth for: this repository's reading order and entry
-points. NOT canonical for anything that changes week to week — current
-state lives in `HANDOFF.md`, the work queue in `TASKS.md`. If this file
-disagrees with the repository's observable state, the repository wins and
-this file is the one to fix.
+points — and for the verification commands and hard gates below ONLY when
+no other document owns them (when a conventions document such as
+`AGENTS.md` owns them, those sections become pointers to it; ownership
+moves, it is never shared). NOT canonical for anything that changes week
+to week — current state lives in `HANDOFF.md`, the work queue in
+`TASKS.md`. If this file disagrees with the repository's observable
+state, the repository wins and this file is the one to fix.
 
 ## What this repository is
 
@@ -42,6 +45,9 @@ or a pointer to the one document section that owns them>
 
 - <e.g., no production deploys / no external posting / no paid API usage>
 - <e.g., which branch is protected, what needs owner sign-off>
+
+<If a conventions document owns the gates, replace this list with a
+pointer to it.>
 
 ## Next step
 

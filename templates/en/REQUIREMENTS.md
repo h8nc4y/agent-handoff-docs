@@ -13,6 +13,10 @@ and measurements (`docs/REPORT.md`), the operational work queue
 (`TASKS.md`), current position (`HANDOFF.md`). If this document disagrees
 with the repository's observable state, the repository wins.
 
+<Note: `docs/ARCHITECTURE.md` and `docs/REPORT.md` have no bundled
+template — point these references at whatever owns those roles here (a
+README section and git history are fine in small repositories).>
+
 ## Purpose and background
 
 <Why this project exists; one short paragraph. Decision context and the

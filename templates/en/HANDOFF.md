@@ -8,9 +8,14 @@ Single source of truth for: current position and the immediate next step —
 nothing else. NOT canonical for: requirements (`docs/REQUIREMENTS.md`),
 current design (`docs/ARCHITECTURE.md`), history and measurements
 (`docs/REPORT.md`), the work queue (`TASKS.md`), conventions and gates
-(`<conventions file, e.g. AGENTS.md>`). If this document disagrees with
+(`<the conventions document such as AGENTS.md, or START_HERE.md —
+whichever this repository uses>`). If this document disagrees with
 the repository's observable state, the repository wins — check `git log`
 and open PRs first, then fix this document.
+
+<Note: `docs/ARCHITECTURE.md` and `docs/REPORT.md` have no bundled
+template — point these references at whatever owns those roles here (a
+README section and git history are fine in small repositories).>
 
 Size budget: keep this file under roughly 1,000 tokens. Compress at every
 work-unit boundary and before any final report: fold durable history into

@@ -178,12 +178,15 @@ verify deployment-style claims with full-target scans.
 Eight files, four document types × two languages, under
 [templates/en](templates/en) and [templates/ja](templates/ja):
 
-| Template | Role |
-| --- | --- |
-| `START_HERE.md` | Standard kickoff file: reading order, verification commands, hard gates — no point-in-time information |
-| `REQUIREMENTS.md` | FR / NFR / non-goals / acceptance-criteria table with evidence-gated statuses, plus an unverified checklist |
-| `HANDOFF.md` | Living handoff: traps first, current position, do-not-re-read list, next step |
-| `TASKS.md` | Task ledger: delegation-ready rows, latest-run-only verification log, one-line-per-period history |
+| Template | Suggested location | Role |
+| --- | --- | --- |
+| `START_HERE.md` | repository root | Standard kickoff file: reading order, verification commands, hard gates — no point-in-time information |
+| `REQUIREMENTS.md` | `docs/` | FR / NFR / non-goals / acceptance-criteria table with evidence-gated statuses, plus an unverified checklist |
+| `HANDOFF.md` | repository root | Living handoff: traps first, current position, do-not-re-read list, next step |
+| `TASKS.md` | repository root | Task ledger: delegation-ready rows, latest-run-only verification log, one-line-per-period history |
+
+The locations are suggestions matching the templates' cross-references —
+adjust both together if your repository differs.
 
 The templates contain placeholders only (`<project>`, `<date>`, `<path>`)
 — copy one into a repository, fill the placeholders, and delete nothing

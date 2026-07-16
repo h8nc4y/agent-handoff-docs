@@ -18,7 +18,7 @@ POSIX:
 ```bash
 total=0; missing=0
 for repo in "$HOME"/projects/*/; do
-  [ -d "$repo/.git" ] || continue
+  [ -e "$repo/.git" ] || continue   # -e, not -d: linked worktrees and submodules have a .git FILE
   total=$((total + 1))
   if [ ! -f "$repo/START_HERE.md" ]; then
     missing=$((missing + 1))
@@ -33,13 +33,20 @@ PowerShell:
 ```powershell
 $root = Join-Path $HOME 'projects'   # placeholder projects root
 $repos = Get-ChildItem -LiteralPath $root -Directory |
-  Where-Object { Test-Path (Join-Path $_.FullName '.git') }
+  Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName '.git') }
 $missing = $repos | Where-Object {
-  -not (Test-Path (Join-Path $_.FullName 'START_HERE.md'))
+  -not (Test-Path -LiteralPath (Join-Path $_.FullName 'START_HERE.md'))
 }
 "checked $($repos.Count) repositories, missing $($missing.Count)"
 $missing | ForEach-Object { "MISSING: $($_.FullName)" }
 ```
+
+Two details that silently corrupt the count — the exact failure mode this
+scan exists to prevent (both measured): use `-e` / a bare `Test-Path`
+existence check rather than a directory-only test, because linked
+worktrees and submodules have a `.git` *file*; and use `-LiteralPath` in
+PowerShell, because without it `Test-Path` treats `[` and `]` in
+directory names as wildcards and skips those repositories.
 
 Report the counts, not just "done": "30 checked, 0 missing" is evidence;
 "deployed everywhere" is a claim.
@@ -52,11 +59,16 @@ Did every document under `docs/` get the canonical-scope declaration?
 expected=$(git ls-files 'docs/*.md' | wc -l)
 actual=$(git grep -l "Canonical scope of this document" -- 'docs/*.md' | wc -l)
 echo "expected $expected, found $actual"
-git ls-files 'docs/*.md' |
-  while read -r f; do
+git ls-files -z 'docs/*.md' |
+  while IFS= read -rd '' f; do
     grep -q "Canonical scope of this document" "$f" || echo "MISSING: $f"
   done
 ```
+
+When a loop consumes file names from git, always use `-z` and NUL-
+delimited reads (bash shown above): plain `git ls-files` octal-escapes
+non-ASCII file names, and the loop then reports a false MISSING for files
+that are actually compliant (measured with a Japanese-named document).
 
 ## Dangling-reference sweep after moving or deleting documents
 
@@ -81,7 +93,7 @@ not from the working tree:
 
 ```bash
 git fetch origin
-git ls-tree --name-only origin/main            # what actually exists
+git ls-tree -r --name-only origin/main         # what actually exists (-r: recurse into docs/)
 git show origin/main:HANDOFF.md                # what it actually says
 ```
 

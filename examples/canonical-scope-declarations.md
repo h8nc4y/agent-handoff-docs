@@ -104,5 +104,8 @@ Conventions for this repository are canonical in @AGENTS.md. This file
 intentionally adds nothing.
 ```
 
-The same arrangement works in the other direction — whichever file every
-agent actually loads is the one that holds the canonical text.
+In this arrangement, `START_HERE.md`'s verification-commands and
+hard-gates sections become pointers to `AGENTS.md` — ownership moves, it
+is never shared. The same arrangement works in the other direction —
+whichever file every agent actually loads is the one that holds the
+canonical text.

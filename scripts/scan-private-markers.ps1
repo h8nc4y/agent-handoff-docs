@@ -95,7 +95,7 @@ function Add-LocalMarker {
 
 $localMarkerFile = Join-Path $root '.private-markers.local'
 if (Test-Path -LiteralPath $localMarkerFile -PathType Leaf) {
-    foreach ($line in Get-Content -LiteralPath $localMarkerFile) {
+    foreach ($line in Get-Content -LiteralPath $localMarkerFile -Encoding UTF8) {
         Add-LocalMarker -Marker $line
     }
 }
@@ -111,12 +111,15 @@ $githubUrlPattern = 'https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git
 $findings = New-Object System.Collections.Generic.List[object]
 
 # Limit scanning to text files to avoid binary noise and expensive regex work.
-# Extensionless text files such as LICENSE are still allowed.
+# Extensionless text files such as LICENSE are still allowed. Dotfiles like
+# .env are "all extension" to GetExtension, so the secret-prone ones are
+# listed explicitly — otherwise they would be silently skipped.
 $textExtensions = @(
     '.md', '.markdown', '.txt', '.ps1', '.psm1', '.psd1', '.yml', '.yaml',
     '.json', '.jsonc', '.toml', '.ini', '.cfg', '.conf', '.xml', '.csv',
     '.sh', '.bash', '.bat', '.cmd', '.py', '.js', '.ts', '.css', '.html',
-    '.htm', '.editorconfig', '.gitattributes', '.gitignore'
+    '.htm', '.editorconfig', '.gitattributes', '.gitignore',
+    '.env', '.envrc', '.npmrc', '.netrc'
 )
 $textExtensionSet = [System.Collections.Generic.HashSet[string]]::new(
     [string[]]$textExtensions, [System.StringComparer]::OrdinalIgnoreCase)
@@ -190,7 +193,11 @@ foreach ($file in $files) {
     $relative = $relative.Replace([string][char]92, '/')
     $lineNumber = 0
 
-    foreach ($line in Get-Content -LiteralPath $file.FullName) {
+    # Explicit UTF-8: Windows PowerShell 5.1 otherwise decodes BOM-less UTF-8
+    # as the ANSI code page, and a misread multi-byte character can swallow
+    # the ASCII bytes right after it — hiding an adjacent secret marker
+    # (measured false negative).
+    foreach ($line in Get-Content -LiteralPath $file.FullName -Encoding UTF8) {
         $lineNumber++
 
         foreach ($match in [regex]::Matches($line, $githubUrlPattern)) {
