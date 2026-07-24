@@ -127,6 +127,7 @@ $requiredFiles = @(
     'templates/ja/REQUIREMENTS.md',
     'templates/ja/HANDOFF.md',
     'templates/ja/TASKS.md',
+    'scripts/private-marker-process.ps1',
     'scripts/scan-private-markers.ps1',
     'scripts/test-scan-private-markers.ps1',
     'scripts/validate-oss-readiness.ps1'
@@ -151,6 +152,10 @@ Assert-FileContains -RelativePath 'SECURITY.md' -Pattern '(?im)do not.*public|pr
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'validate-oss-readiness\.ps1' -Description 'OSS readiness validation in CI'
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'scan-private-markers\.ps1' -Description 'private marker scan in CI'
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'test-scan-private-markers\.ps1' -Description 'private marker scan self-test in CI'
+Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'windows-latest' -Description 'Windows validation runner in CI'
+Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'ubuntu-latest' -Description 'Ubuntu validation runner in CI'
+Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'timeout-minutes:\s*10' -Description 'bounded CI validation job'
+Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'shell:\s*powershell' -Description 'Windows PowerShell 5.1 validation in CI'
 
 # The whole framework hangs on the canonical-scope declaration, so every
 # bundled template must reserve it as a heading. English templates carry the
