@@ -1,4 +1,12 @@
+param(
+    [switch]$PrivateMarkerWindowsGate,
+    [string]$PrivateMarkerGateName,
+    [string]$PrivateMarkerPayloadBase64
+)
+
 Set-StrictMode -Version Latest
+
+$script:privateMarkerProcessScriptPath = $PSCommandPath
 
 # `$env:OS` is caller-controlled and therefore cannot select containment or
 # argument-handling security paths. Derive the host kernel once from .NET.
@@ -290,6 +298,172 @@ function ConvertTo-PrivateMarkerProcessArgument {
     return $builder.ToString()
 }
 
+function Start-PrivateMarkerProcessWithRawInput {
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.Diagnostics.Process]$Process
+    )
+
+    $restoreConsoleInputEncoding = $false
+    $originalConsoleInputEncoding = $null
+    if ($script:privateMarkerIsWindows -and
+        $Process.StartInfo.RedirectStandardInput -and
+        $null -eq $Process.StartInfo.PSObject.Properties[
+            'StandardInputEncoding'
+        ]) {
+        # Windows PowerShell 5.1 builds Process.StandardInput from the current
+        # console encoding and its UTF-8 variant emits a BOM. Select BOM-less
+        # UTF-8 only while Process.Start creates the redirected StreamWriter.
+        $originalConsoleInputEncoding = [Console]::InputEncoding
+        [Console]::InputEncoding = [Text.UTF8Encoding]::new($false)
+        $restoreConsoleInputEncoding = $true
+    }
+    try {
+        return $Process.Start()
+    }
+    finally {
+        if ($restoreConsoleInputEncoding) {
+            [Console]::InputEncoding = $originalConsoleInputEncoding
+        }
+    }
+}
+
+function Invoke-PrivateMarkerWindowsGateProxy {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$GateName,
+
+        [Parameter(Mandatory = $true)]
+        [string]$PayloadBase64
+    )
+
+    if (-not $script:privateMarkerIsWindows) {
+        throw 'The Windows launch gate is unavailable on this platform.'
+    }
+
+    $gate = [Threading.EventWaitHandle]::OpenExisting($GateName)
+    try {
+        if (-not $gate.WaitOne(30000)) {
+            return 124
+        }
+    }
+    finally {
+        $gate.Dispose()
+    }
+
+    $payloadJson = [Text.Encoding]::UTF8.GetString(
+        [Convert]::FromBase64String($PayloadBase64)
+    )
+    $payload = ConvertFrom-Json -InputObject $payloadJson
+    $child = $null
+    try {
+        # A descendant inherits the already-assigned Job before it can execute.
+        # Use ProcessStartInfo instead of PowerShell's native invocation path so
+        # binary Git protocols are never decoded or serialized as CLIXML.
+        $childStartInfo = New-Object System.Diagnostics.ProcessStartInfo
+        $childStartInfo.FileName = [string]$payload.FileName
+        $childStartInfo.UseShellExecute = $false
+        $childStartInfo.CreateNoWindow = $true
+        $childStartInfo.RedirectStandardOutput = $true
+        $childStartInfo.RedirectStandardError = $true
+        $childStartInfo.RedirectStandardInput =
+            [bool]$payload.RedirectStandardInput
+        if ([bool]$payload.RedirectStandardInput -and
+            $null -ne $childStartInfo.PSObject.Properties[
+                'StandardInputEncoding'
+            ]) {
+            # .NET Framework's default StreamWriter can emit a UTF-8 preamble
+            # before raw BaseStream bytes. Select an explicit BOM-less writer.
+            $childStartInfo.StandardInputEncoding =
+                [Text.UTF8Encoding]::new($false)
+        }
+        $childArgumentList =
+            $childStartInfo.PSObject.Properties['ArgumentList']
+        if ($null -ne $childArgumentList) {
+            foreach ($argument in @($payload.Arguments)) {
+                $childStartInfo.ArgumentList.Add([string]$argument)
+            }
+        }
+        else {
+            $childStartInfo.Arguments = [string]$payload.LegacyArguments
+        }
+
+        $child = New-Object System.Diagnostics.Process
+        $child.StartInfo = $childStartInfo
+        if (-not (Start-PrivateMarkerProcessWithRawInput -Process $child)) {
+            throw 'Bounded child start failed.'
+        }
+
+        # Fixed-size stream copies apply backpressure instead of accumulating a
+        # second unbounded output buffer inside the trusted gate process.
+        $stdout = [Console]::OpenStandardOutput()
+        $stderr = [Console]::OpenStandardError()
+        $stdoutTask = $child.StandardOutput.BaseStream.CopyToAsync(
+            $stdout,
+            8192
+        )
+        $stderrTask = $child.StandardError.BaseStream.CopyToAsync(
+            $stderr,
+            8192
+        )
+        if ([bool]$payload.RedirectStandardInput) {
+            $stdin = [Console]::OpenStandardInput()
+            $stdinTask = $stdin.CopyToAsync(
+                $child.StandardInput.BaseStream,
+                8192
+            )
+            try {
+                [void]$stdinTask.GetAwaiter().GetResult()
+            }
+            finally {
+                $child.StandardInput.Close()
+            }
+        }
+
+        [void]$child.WaitForExit()
+        $childExitCode = $child.ExitCode
+
+        # A descendant can inherit the target-side pipe after the target exits.
+        # Bound this final drain so the gate exits promptly and lets the owning
+        # parent close the Job before a delayed descendant can act.
+        $outputTasks = [Threading.Tasks.Task[]]@(
+            $stdoutTask,
+            $stderrTask
+        )
+        $outputDrained = [Threading.Tasks.Task]::WaitAll(
+            $outputTasks,
+            100
+        )
+        if ($outputDrained) {
+            [void]$stdoutTask.GetAwaiter().GetResult()
+            [void]$stderrTask.GetAwaiter().GetResult()
+        }
+        $stdout.Flush()
+        $stderr.Flush()
+        if (-not $outputDrained) {
+            # Exit promptly so the owner closes the Job, but do not report a
+            # possibly truncated native protocol as the target's real result.
+            return 125
+        }
+        return [int]$childExitCode
+    }
+    finally {
+        if ($null -ne $child) {
+            try {
+                if (-not $child.HasExited) {
+                    $child.Kill()
+                    [void]$child.WaitForExit(5000)
+                }
+            }
+            catch {
+            }
+            finally {
+                $child.Dispose()
+            }
+        }
+    }
+}
+
 function Stop-PrivateMarkerPosixProcessGroupBounded {
     param(
         [int]$ProcessGroupId,
@@ -467,40 +641,15 @@ function Invoke-PrivateMarkerBoundedProcess {
         $payloadJson = [pscustomobject]@{
             FileName = $FileName
             Arguments = @($Arguments)
+            LegacyArguments = (
+                @($Arguments) | ForEach-Object {
+                    ConvertTo-PrivateMarkerProcessArgument -Argument $_
+                }
+            ) -join ' '
+            RedirectStandardInput = $null -ne $StandardInputBytes
         } | ConvertTo-Json -Compress -Depth 4
         $payloadBase64 = [Convert]::ToBase64String(
             [Text.Encoding]::UTF8.GetBytes($payloadJson)
-        )
-        $wrapperScript = @"
-`$gate = [Threading.EventWaitHandle]::OpenExisting('$windowsLaunchGateName')
-try {
-    if (-not `$gate.WaitOne(30000)) {
-        exit 124
-    }
-}
-finally {
-    `$gate.Dispose()
-}
-try {
-    `$payloadJson = [Text.Encoding]::UTF8.GetString(
-        [Convert]::FromBase64String('$payloadBase64')
-    )
-    `$payload = ConvertFrom-Json -InputObject `$payloadJson
-    `$invokeArguments = @(`$payload.Arguments | ForEach-Object { [string]`$_ })
-    & ([string]`$payload.FileName) @invokeArguments
-    `$childExitCode = `$LASTEXITCODE
-    if (`$null -eq `$childExitCode) {
-        `$childExitCode = 0
-    }
-    exit [int]`$childExitCode
-}
-catch {
-    [Console]::Error.WriteLine('Bounded child launch failed.')
-    exit 127
-}
-"@
-        $wrapperBase64 = [Convert]::ToBase64String(
-            [Text.Encoding]::Unicode.GetBytes($wrapperScript)
         )
         $effectiveFileName =
             [Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
@@ -508,7 +657,15 @@ catch {
         if ($PSVersionTable.PSVersion.Major -le 5) {
             $effectiveArguments += @('-ExecutionPolicy', 'Bypass')
         }
-        $effectiveArguments += @('-EncodedCommand', $wrapperBase64)
+        $effectiveArguments += @(
+            '-File',
+            $script:privateMarkerProcessScriptPath,
+            '-PrivateMarkerWindowsGate',
+            '-PrivateMarkerGateName',
+            $windowsLaunchGateName,
+            '-PrivateMarkerPayloadBase64',
+            $payloadBase64
+        )
     } elseif (-not $script:privateMarkerIsWindows) {
         $setsidPath = @('/usr/bin/setsid', '/bin/setsid') |
             Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
@@ -567,6 +724,7 @@ namespace AgentHandoffDocs
         }
     }
 }
+
 "@
 }
 try {
@@ -644,6 +802,11 @@ catch {
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $true
     $startInfo.RedirectStandardInput = $null -ne $StandardInputBytes
+    if ($null -ne $StandardInputBytes -and
+        $null -ne $startInfo.PSObject.Properties['StandardInputEncoding']) {
+        $startInfo.StandardInputEncoding =
+            [Text.UTF8Encoding]::new($false)
+    }
     if (-not [string]::IsNullOrWhiteSpace($WorkingDirectory)) {
         $startInfo.WorkingDirectory = $WorkingDirectory
     }
@@ -784,7 +947,7 @@ catch {
         }
         $process = New-Object System.Diagnostics.Process
         $process.StartInfo = $startInfo
-        if (-not $process.Start()) {
+        if (-not (Start-PrivateMarkerProcessWithRawInput -Process $process)) {
             throw "Failed to start bounded child process: $FileName"
         }
         $processStarted = $true
@@ -1120,5 +1283,24 @@ catch {
         OutputLimitExceeded = $outputLimitExceeded
         TreeStopped = $treeStopped
         StreamsDrained = $streamsDrained
+    }
+}
+
+# `-File` keeps Windows PowerShell 5.1 from adding CLIXML framing to the raw
+# proxy streams. Normal dot-sourcing never enters this internal execution mode.
+if ($PrivateMarkerWindowsGate) {
+    try {
+        if ([string]::IsNullOrWhiteSpace($PrivateMarkerGateName) -or
+            [string]::IsNullOrWhiteSpace($PrivateMarkerPayloadBase64)) {
+            throw 'The Windows launch gate payload is incomplete.'
+        }
+        $proxyExitCode = Invoke-PrivateMarkerWindowsGateProxy `
+            -GateName $PrivateMarkerGateName `
+            -PayloadBase64 $PrivateMarkerPayloadBase64
+        exit [int]$proxyExitCode
+    }
+    catch {
+        [Console]::Error.WriteLine('Bounded child launch failed.')
+        exit 127
     }
 }

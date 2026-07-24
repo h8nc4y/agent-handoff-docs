@@ -12,6 +12,7 @@ $scriptRoot = $PSScriptRoot
 if ([string]::IsNullOrWhiteSpace($scriptRoot)) {
     $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 }
+$selfTestScriptPath = $MyInvocation.MyCommand.Path
 
 if ([string]::IsNullOrWhiteSpace($Path)) {
     $Path = Split-Path -Parent $scriptRoot
@@ -97,6 +98,215 @@ function Test-BoundedResultHealthy {
         $Result.StreamsDrained
 }
 
+function Test-PrivateMarkerCommandIsDeferredDefinition {
+    param(
+        [Parameter(Mandatory = $true)]
+        [Management.Automation.Language.CommandAst]$Command
+    )
+
+    $ancestor = $Command.Parent
+    while ($null -ne $ancestor) {
+        if ($ancestor -is
+                [Management.Automation.Language.FunctionDefinitionAst] -or
+            $ancestor -is
+                [Management.Automation.Language.FunctionMemberAst] -or
+            $ancestor -is
+                [Management.Automation.Language.TypeDefinitionAst]) {
+            return $true
+        }
+        if ($ancestor -is
+            [Management.Automation.Language.ScriptBlockExpressionAst]) {
+            # A stored scriptblock is data until some enclosing command receives
+            # it. Conservatively treat command arguments and member invocation
+            # as executable because invocation operators, pipeline cmdlets, and
+            # ScriptBlock.Invoke*() can run those blocks.
+            $container = $ancestor.Parent
+            $expressionCanExecuteScriptBlock = $false
+            while ($null -ne $container) {
+                if ($container -is
+                        [Management.Automation.Language.FunctionDefinitionAst] -or
+                    $container -is
+                        [Management.Automation.Language.FunctionMemberAst] -or
+                    $container -is
+                        [Management.Automation.Language.TypeDefinitionAst]) {
+                    return $true
+                }
+                if ($container -is
+                        [Management.Automation.Language.CommandAst] -or
+                    $container -is
+                        [Management.Automation.Language.InvokeMemberExpressionAst]) {
+                    $expressionCanExecuteScriptBlock = $true
+                    break
+                }
+                $container = $container.Parent
+            }
+            if (-not $expressionCanExecuteScriptBlock) {
+                return $true
+            }
+        }
+        $ancestor = $ancestor.Parent
+    }
+    return $false
+}
+
+function Test-FirstBoundedInvocationIsRawTransport {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Source
+    )
+
+    # Validate AST relationships, not lines or regex text. The raw assignment
+    # must directly own one outer helper command, with no nested helper argument.
+    $tokens = $null
+    $parseErrors = $null
+    $sourceAst = [Management.Automation.Language.Parser]::ParseInput(
+        $Source,
+        [ref]$tokens,
+        [ref]$parseErrors
+    )
+    if ($parseErrors.Count -gt 0) {
+        return $false
+    }
+
+    $rawAssignments = @(
+        $sourceAst.FindAll(
+            {
+                param($node)
+                return $node -is
+                        [Management.Automation.Language.AssignmentStatementAst] -and
+                    $node.Left -is
+                        [Management.Automation.Language.VariableExpressionAst] -and
+                    $node.Left.VariablePath.UserPath -eq 'rawTransportResult'
+            },
+            $true
+        )
+    )
+    if ($rawAssignments.Count -ne 1 -or
+        $rawAssignments[0].Right -isnot
+            [Management.Automation.Language.PipelineAst]) {
+        return $false
+    }
+
+    $rawPipelineElements = @($rawAssignments[0].Right.PipelineElements)
+    if ($rawPipelineElements.Count -ne 1 -or
+        $rawPipelineElements[0] -isnot
+            [Management.Automation.Language.CommandAst] -or
+        $rawPipelineElements[0].GetCommandName() -ne
+            'Invoke-PrivateMarkerBoundedProcess') {
+        return $false
+    }
+    $rawOuterCommand = $rawPipelineElements[0]
+    $rawNestedCalls = @(
+        $rawAssignments[0].Right.FindAll(
+            {
+                param($node)
+                return $node -is
+                        [Management.Automation.Language.CommandAst] -and
+                    $node.GetCommandName() -eq
+                        'Invoke-PrivateMarkerBoundedProcess'
+            },
+            $true
+        )
+    )
+    if ($rawNestedCalls.Count -ne 1 -or
+        (Test-PrivateMarkerCommandIsDeferredDefinition `
+            -Command $rawOuterCommand)) {
+        return $false
+    }
+
+    $eagerBoundedCalls = @(
+        $sourceAst.FindAll(
+            {
+                param($node)
+                return $node -is
+                        [Management.Automation.Language.CommandAst] -and
+                    $node.GetCommandName() -eq
+                        'Invoke-PrivateMarkerBoundedProcess'
+            },
+            $true
+        ) |
+            Where-Object {
+                -not (Test-PrivateMarkerCommandIsDeferredDefinition -Command $_)
+            } |
+            Sort-Object { $_.Extent.StartOffset }
+    )
+    return $eagerBoundedCalls.Count -gt 0 -and
+        $eagerBoundedCalls[0].Extent.StartOffset -eq
+            $rawOuterCommand.Extent.StartOffset -and
+        $eagerBoundedCalls[0].Extent.EndOffset -eq
+            $rawOuterCommand.Extent.EndOffset
+}
+
+function Assert-FirstBoundedInvocationValidatorRegressions {
+    $cases = @(
+        [pscustomobject]@{
+            Name = 'direct-before'
+            Expected = $false
+            Source = @'
+Invoke-PrivateMarkerBoundedProcess
+$rawTransportResult = Invoke-PrivateMarkerBoundedProcess
+'@
+        },
+        [pscustomobject]@{
+            Name = 'function-before'
+            Expected = $true
+            Source = @'
+function Invoke-Deferred {
+    Invoke-PrivateMarkerBoundedProcess
+}
+$rawTransportResult = Invoke-PrivateMarkerBoundedProcess
+'@
+        },
+        [pscustomobject]@{
+            Name = 'uninvoked-scriptblock'
+            Expected = $true
+            Source = @'
+$unused = { Invoke-PrivateMarkerBoundedProcess }
+$rawTransportResult = Invoke-PrivateMarkerBoundedProcess
+'@
+        },
+        [pscustomobject]@{
+            Name = 'nested-inner'
+            Expected = $false
+            Source = @'
+$rawTransportResult = Invoke-PrivateMarkerBoundedProcess -Value $(Invoke-PrivateMarkerBoundedProcess)
+'@
+        },
+        [pscustomobject]@{
+            Name = 'invoked-scriptblock-member'
+            Expected = $false
+            Source = @'
+({ Invoke-PrivateMarkerBoundedProcess }).Invoke()
+$rawTransportResult = Invoke-PrivateMarkerBoundedProcess
+'@
+        },
+        [pscustomobject]@{
+            Name = 'invoked-scriptblock-return-as-is'
+            Expected = $false
+            Source = @'
+({ Invoke-PrivateMarkerBoundedProcess }).InvokeReturnAsIs()
+$rawTransportResult = Invoke-PrivateMarkerBoundedProcess
+'@
+        }
+    )
+    foreach ($case in $cases) {
+        $actual = Test-FirstBoundedInvocationIsRawTransport `
+            -Source $case.Source
+        if ($actual -ne $case.Expected) {
+            Add-Failure "First-invocation validator regression failed: $($case.Name)."
+        }
+    }
+}
+
+function Assert-FirstBoundedInvocationIsRawTransport {
+    # Parse the real self-test before any bounded helper runs, then apply the
+    # same pure validator covered by the synthetic structural regressions.
+    $source = [IO.File]::ReadAllText($selfTestScriptPath)
+    if (-not (Test-FirstBoundedInvocationIsRawTransport -Source $source)) {
+        Add-Failure 'Expected raw binary transport to be the first executable bounded helper invocation.'
+    }
+}
+
 function Invoke-Scanner {
     param(
         [string]$ScanPath,
@@ -151,7 +361,10 @@ function Invoke-IsolatedGit {
         [Parameter(Mandatory = $true)]
         [string[]]$Arguments,
 
-        [hashtable]$InheritedEnvironment = @{}
+        [hashtable]$InheritedEnvironment = @{},
+
+        [AllowNull()]
+        [byte[]]$StandardInputBytes = $null
     )
 
     return Invoke-PrivateMarkerBoundedProcess `
@@ -160,6 +373,7 @@ function Invoke-IsolatedGit {
         -IsolationRoot $IsolationRoot `
         -WorkingDirectory $WorkingDirectory `
         -InheritedEnvironment $InheritedEnvironment `
+        -StandardInputBytes $StandardInputBytes `
         -TimeoutMilliseconds 20000
 }
 
@@ -241,6 +455,152 @@ $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("agent-handoff-docs-sca
 New-Item -ItemType Directory -Path $tempRoot | Out-Null
 
 try {
+    Assert-FirstBoundedInvocationValidatorRegressions
+    Assert-FirstBoundedInvocationIsRawTransport
+
+    # This must remain the first top-level bounded helper invocation. Scanner
+    # fixtures enter the owned Job first, so their nested Git calls reuse it and
+    # cannot expose corruption in the initial Windows gate. Exercise binary
+    # stdin, partial stdout/stderr writes, EOF, and a nonzero exit code without
+    # framing.
+    $rawTransportScript = @'
+$stdin = [Console]::OpenStandardInput()
+$readBuffer = New-Object byte[] 3
+$stdout = [Console]::OpenStandardOutput()
+$readCount = $stdin.Read($readBuffer, 0, $readBuffer.Length)
+while ($readCount -gt 0) {
+    $stdout.Write($readBuffer, 0, $readCount)
+    $stdout.Flush()
+    $readCount = $stdin.Read($readBuffer, 0, $readBuffer.Length)
+}
+$stderrBytes = [byte[]]@(255, 254, 128, 127, 13, 10, 1, 0)
+$stderr = [Console]::OpenStandardError()
+$stderr.Write($stderrBytes, 0, 3)
+$stderr.Flush()
+$stderr.Write($stderrBytes, 3, $stderrBytes.Length - 3)
+$stderr.Flush()
+exit 37
+'@
+    $rawTransportChildPath = Join-Path $tempRoot 'raw-transport-child.ps1'
+    [IO.File]::WriteAllText(
+        $rawTransportChildPath,
+        $rawTransportScript,
+        [Text.UTF8Encoding]::new($false)
+    )
+    $rawTransportArguments = @('-NoProfile')
+    if ($PSVersionTable.PSVersion.Major -le 5 -and $runtimeIsWindows) {
+        $rawTransportArguments += @('-ExecutionPolicy', 'Bypass')
+    }
+    $rawTransportArguments += @('-File', $rawTransportChildPath)
+    $rawTransportInput = [byte[]]@(
+        0, 128, 255, 1, 10, 13, 127, 254, 2, 129, 253, 3
+    )
+    $rawTransportResult = Invoke-PrivateMarkerBoundedProcess `
+        -FileName $currentPowerShellExecutable `
+        -Arguments $rawTransportArguments `
+        -IsolationRoot (Join-Path $tempRoot 'raw-transport-isolation') `
+        -StandardInputBytes $rawTransportInput `
+        -TimeoutMilliseconds 5000 `
+        -MaxStdoutBytes 64 `
+        -MaxStderrBytes 64
+    $expectedRawStderr = [byte[]]@(255, 254, 128, 127, 13, 10, 1, 0)
+    if (-not (Test-BoundedResultHealthy -Result $rawTransportResult) -or
+        $rawTransportResult.ExitCode -ne 37 -or
+        [Convert]::ToBase64String($rawTransportResult.StdoutBytes) -ne
+            [Convert]::ToBase64String($rawTransportInput) -or
+        [Convert]::ToBase64String($rawTransportResult.StderrBytes) -ne
+            [Convert]::ToBase64String($expectedRawStderr)) {
+        Add-Failure 'Expected the containment gate to preserve binary stdin/stdout/stderr, EOF, and exit code exactly.'
+    }
+
+    # PowerShell accepts a UTF-8 preamble at its own input boundary, so the
+    # synthetic echo above cannot expose Windows PowerShell 5.1 adding that
+    # preamble before raw BaseStream writes. Exercise native Git at the same
+    # top-level Job gate and compare its complete binary batch response.
+    $rawGitCommands = @(
+        Get-Command git -CommandType Application -ErrorAction SilentlyContinue
+    )
+    if ($rawGitCommands.Count -eq 0) {
+        Add-Failure 'Expected native Git to be available for the raw containment-gate regression.'
+    }
+    else {
+        $rawGitPath = $rawGitCommands[0].Source
+        $rawGitRoot = Join-Path $tempRoot 'raw-git-transport'
+        $rawGitIsolationRoot = Join-Path $tempRoot 'raw-git-isolation'
+        New-Item -ItemType Directory -Path $rawGitRoot | Out-Null
+        New-Item -ItemType Directory -Path $rawGitIsolationRoot | Out-Null
+
+        $rawGitInitResult = Invoke-IsolatedGit `
+            -GitPath $rawGitPath `
+            -WorkingDirectory $rawGitRoot `
+            -IsolationRoot $rawGitIsolationRoot `
+            -Arguments @('init', '-q')
+        if (-not (Test-BoundedResultHealthy -Result $rawGitInitResult) -or
+            $rawGitInitResult.ExitCode -ne 0) {
+            Add-Failure 'Expected the raw native Git transport fixture to initialize.'
+        }
+        else {
+            $rawGitBlobBytes = [byte[]]@(0, 128, 255, 10, 13, 1, 2)
+            [IO.File]::WriteAllBytes(
+                (Join-Path $rawGitRoot 'blob.bin'),
+                $rawGitBlobBytes
+            )
+            $rawGitHashResult = Invoke-IsolatedGit `
+                -GitPath $rawGitPath `
+                -WorkingDirectory $rawGitRoot `
+                -IsolationRoot $rawGitIsolationRoot `
+                -Arguments @('hash-object', '-w', '--', 'blob.bin')
+            $rawGitObjectId = [Text.Encoding]::ASCII.GetString(
+                $rawGitHashResult.StdoutBytes
+            ).Trim()
+            if (-not (Test-BoundedResultHealthy -Result $rawGitHashResult) -or
+                $rawGitHashResult.ExitCode -ne 0 -or
+                $rawGitObjectId -notmatch '^(?:[0-9a-f]{40}|[0-9a-f]{64})$') {
+                Add-Failure 'Expected the raw native Git transport fixture to create a blob object.'
+            }
+            else {
+                # The helper may temporarily select a BOM-less stdin encoding
+                # for Process.Start(), but the caller's console contract must
+                # be restored before this invocation returns.
+                $inputCodePageBefore = [Console]::InputEncoding.CodePage
+                $inputPreambleBefore = [Convert]::ToBase64String(
+                    [Console]::InputEncoding.GetPreamble()
+                )
+                $rawGitBatchInput = [Text.Encoding]::ASCII.GetBytes(
+                    "$rawGitObjectId`n"
+                )
+                $rawGitBatchResult = Invoke-IsolatedGit `
+                    -GitPath $rawGitPath `
+                    -WorkingDirectory $rawGitRoot `
+                    -IsolationRoot $rawGitIsolationRoot `
+                    -Arguments @('cat-file', '--batch') `
+                    -StandardInputBytes $rawGitBatchInput
+                $rawGitHeaderBytes = [Text.Encoding]::ASCII.GetBytes(
+                    "$rawGitObjectId blob $($rawGitBlobBytes.Length)`n"
+                )
+                $expectedRawGitOutput = [byte[]](
+                    @($rawGitHeaderBytes) +
+                    @($rawGitBlobBytes) +
+                    @(10)
+                )
+                if (-not (Test-BoundedResultHealthy -Result $rawGitBatchResult) -or
+                    $rawGitBatchResult.ExitCode -ne 0 -or
+                    $rawGitBatchResult.StderrBytes.Length -ne 0 -or
+                    [Convert]::ToBase64String($rawGitBatchResult.StdoutBytes) -ne
+                        [Convert]::ToBase64String($expectedRawGitOutput)) {
+                    Add-Failure 'Expected native git cat-file batch transport to remain byte-exact without a UTF-8 preamble.'
+                }
+                if ([Console]::InputEncoding.CodePage -ne
+                        $inputCodePageBefore -or
+                    [Convert]::ToBase64String(
+                        [Console]::InputEncoding.GetPreamble()
+                    ) -ne $inputPreambleBefore) {
+                    Add-Failure 'Expected the raw input transport to restore the caller console input encoding exactly.'
+                }
+            }
+        }
+    }
+
     # A delayed grandchild sentinel distinguishes true tree cleanup from a
     # parent-only kill. The grandchild also keeps the redirected pipe open.
     $timeoutIsolationRoot = Join-Path $tempRoot 'timeout-isolation'
@@ -327,7 +687,8 @@ Start-Sleep -Milliseconds 1500
         -ForceNativePosixSessionGate:(-not $runtimeIsWindows)
     if ($detachedResult.TimedOut -or
         -not $detachedResult.TreeStopped -or
-        -not $detachedResult.StreamsDrained) {
+        -not $detachedResult.StreamsDrained -or
+        ($runtimeIsWindows -and $detachedResult.ExitCode -ne 125)) {
         Add-Failure 'Expected parent-first exit cleanup to stop the pipe-owning grandchild and drain both streams.'
     }
     for ($attempt = 0; $attempt -lt 25 -and

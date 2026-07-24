@@ -52,6 +52,14 @@ The format loosely follows Keep a Changelog conventions.
   caller-controlled environment, verify direct Job membership and
   parent-first cleanup, and run ten consecutive immediate-descendant
   timeout races.
+- Preserve binary stdin, stdout, stderr, EOF, and exit codes across the
+  first Windows Job gate with fixed-size streaming buffers and a bounded
+  final drain. Invoke the trusted gate through `-File` so Windows
+  PowerShell 5.1 cannot add CLIXML framing, and temporarily select then
+  restore BOM-less UTF-8 input during process startup so raw Git batch
+  requests cannot gain a preamble. Keep native Git and binary echo
+  regressions at the top-level helper boundary because scanner fixtures
+  already inside the owned Job exercise only its reuse path.
 - Read index blobs through one bounded `git cat-file --batch` stream and
   reject byte-level `git ls-files --stage` or `--debug` changes before
   reporting success. Treat `.env` variants, PEM/certificate/key files,

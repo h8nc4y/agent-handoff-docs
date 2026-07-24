@@ -308,6 +308,15 @@ available and a same-host `libc` `setsid(2)` gate otherwise. The self-test
 forces the fallback path, so macOS does not require an extra `setsid`
 package merely to run the scanner.
 
+On Windows, the first bounded child starts only after its trusted gate is
+assigned to a kill-on-close Job. That gate proxies stdin, stdout, and
+stderr with fixed 8 KiB buffers and a bounded final drain, preserving
+binary Git protocols without PowerShell text or CLIXML conversion. On
+Windows PowerShell 5.1, process startup temporarily selects and then
+restores a BOM-less UTF-8 input encoding so raw Git batch requests cannot
+gain a preamble. The self-test exercises this first-gate transport directly because a scanner
+fixture already inside the owned Job takes the separate reuse path.
+
 Also run Git whitespace checks on your working changes before publishing:
 
 ```bash
@@ -318,7 +327,7 @@ The GitHub Actions workflow runs the same validation, scan self-test,
 private-marker scan, and a committed-tree whitespace check on both
 Windows and Ubuntu for pull requests and pushes to `main`. The Windows
 job runs the checks under both PowerShell 7 and Windows PowerShell 5.1.
-Each matrix job has a 10-minute timeout.
+Each matrix job has a 25-minute timeout.
 
 ## Contributing
 

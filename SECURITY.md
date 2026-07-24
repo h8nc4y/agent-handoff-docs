@@ -56,7 +56,12 @@ rechecks raw stage/debug metadata immediately before reporting. It does
 not follow worktree links or fetch missing Git objects; ambiguous index,
 root, link, encoding, process, drift, count, or size states fail closed.
 File, entry, line, regex-match, finding, byte, process, output, and time
-budgets bound hostile input. The scanner checks a curated set of secret prefixes (GitHub,
+budgets bound hostile input. The initial Windows Job gate streams native
+stdin, stdout, and stderr through fixed-size buffers with a bounded final
+drain, preserving binary Git output without PowerShell or CLIXML framing.
+Windows PowerShell 5.1 process startup uses a temporary BOM-less UTF-8
+input encoding and restores the caller's encoding before returning.
+The scanner checks a curated set of secret prefixes (GitHub,
 OpenAI, AWS, GCP, Slack, Stripe, PEM key blocks, and similar),
 private-looking absolute Windows paths, non-allowlisted GitHub repository
 URLs, and configured local markers, and it redacts any matched value.
