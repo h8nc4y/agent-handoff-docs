@@ -49,14 +49,26 @@ Public issues must not include:
 ## Scanner Coverage
 
 The private-marker scanner (`scripts/scan-private-markers.ps1`) is a
-best-effort safety net, not a guarantee. It scans git-tracked text files
-for a curated set of secret prefixes (GitHub, OpenAI, AWS, GCP, Slack,
-Stripe, PEM key blocks, and similar), private-looking absolute Windows
-paths, non-allowlisted GitHub repository URLs, and configured local
-markers, and it redacts any matched value. It does not detect every
-possible secret format and is no substitute for keeping real credentials
-out of the repository in the first place. Treat a passing scan as "no
-known marker found," not "definitely safe."
+best-effort safety net, not a guarantee. For git-tracked text paths, it
+scans both the exact index blob and a distinct current regular worktree
+snapshot. It reads intent-to-add from the index extended flags and
+rechecks raw stage/debug metadata immediately before reporting. It does
+not follow worktree links or fetch missing Git objects; ambiguous index,
+root, link, encoding, process, drift, count, or size states fail closed.
+File, entry, line, regex-match, finding, byte, process, output, and time
+budgets bound hostile input. The initial Windows Job gate streams native
+stdin, stdout, and stderr through fixed-size buffers with a bounded final
+drain, preserving binary Git output without PowerShell or CLIXML framing.
+Windows PowerShell 5.1 process startup uses a temporary BOM-less UTF-8
+input encoding and restores the caller's encoding before returning.
+The scanner checks a curated set of secret prefixes (GitHub,
+OpenAI, AWS, GCP, Slack, Stripe, PEM key blocks, and similar),
+private-looking absolute Windows paths, non-allowlisted GitHub repository
+URLs, and configured local markers, and it redacts any matched value.
+`.private-markers.local` must remain untracked. The scanner does not
+detect every possible secret format and is no substitute for keeping real
+credentials out of the repository in the first place. Treat a passing
+scan as "no known marker found," not "definitely safe."
 
 ## Response Expectations
 

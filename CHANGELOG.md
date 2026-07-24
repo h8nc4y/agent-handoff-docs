@@ -6,6 +6,67 @@ The format loosely follows Keep a Changelog conventions.
 
 ## Unreleased
 
+### Fixed
+
+- Preserve git's forward-slash tracked paths when resolving files so
+  nested files remain in the private-marker scan on Windows and POSIX.
+  The previous Windows-only backslash conversion made tracked nested files
+  disappear from Linux/macOS scans.
+- Include Unix-hidden dotfiles in both git-tracked and working-tree scan
+  modes while retaining cross-platform working-tree exclusions for
+  `.git`, `node_modules`, and `.cache`.
+
+### Changed
+
+- Add synthetic git-tracked nested-file and dotfile regressions plus
+  working-tree path and exclusion regressions, and run full repository
+  validation on both Windows and Ubuntu. This makes the documented
+  PowerShell 7 POSIX path executable in CI rather than an unmeasured
+  portability claim.
+- Run synthetic Git fixtures in a hermetic environment and verify that
+  ambient repository redirects, hooks, filters, templates, attributes,
+  traces, and user configuration cannot affect the test or escape its
+  temp tree. The harness sanitizes child-only environment clones, keeps
+  the parent environment unchanged, runs the current PowerShell engine,
+  and bounds every scanner/Git child with process-tree cleanup.
+- Scan the exact index blob and the current regular worktree snapshot,
+  read intent-to-add directly from extended index flags, and recheck raw
+  stage/debug metadata after content matching. Fail closed on conflicts,
+  gitlinks, tracked local marker configuration, malformed/corrupt indexes,
+  reparse ancestors, drift, oversized inputs, and repository-root
+  mismatches.
+- Bound file-system entries, scan targets, lines, regex matches, findings,
+  bytes, child output, processes, and runtime. Stream directory and line
+  enumeration, cap the redacted report, exclude leaf `.git` metadata, and
+  escape control, bidi/format, and logical line-separator characters in
+  displayed paths.
+- Disable Git replace objects, lazy object fetching, and transport
+  protocols for scanner children. Add synthetic regressions for hostile
+  ambient indexes, staged/worktree/missing states, replace refs, symlink
+  blobs, process output caps, and descendant cleanup.
+- Assign the Windows gate wrapper to a kill-on-close Job before releasing
+  scanner work, and isolate POSIX children in a process group using either
+  the system `setsid` executable or a gated `libc` fallback. Use
+  errno-aware `kill(2)` cleanup so only success or an already-absent group
+  counts as stopped. Derive the platform from the runtime instead of
+  caller-controlled environment, verify direct Job membership and
+  parent-first cleanup, and run ten consecutive immediate-descendant
+  timeout races.
+- Preserve binary stdin, stdout, stderr, EOF, and exit codes across the
+  first Windows Job gate with fixed-size streaming buffers and a bounded
+  final drain. Invoke the trusted gate through `-File` so Windows
+  PowerShell 5.1 cannot add CLIXML framing, and temporarily select then
+  restore BOM-less UTF-8 input during process startup so raw Git batch
+  requests cannot gain a preamble. Keep native Git and binary echo
+  regressions at the top-level helper boundary because scanner fixtures
+  already inside the owned Job exercise only its reuse path.
+- Read index blobs through one bounded `git cat-file --batch` stream and
+  reject byte-level `git ls-files --stage` or `--debug` changes before
+  reporting success. Treat `.env` variants, PEM/certificate/key files,
+  and extensionless text files as scan candidates.
+- Run the Windows matrix checks under Windows PowerShell 5.1 as well as
+  PowerShell 7.
+
 ## 0.1.0 - 2026-07-16
 
 ### Added
