@@ -76,8 +76,12 @@ evidence, the pull request is merged, and the default branch is clean.
   same full suite passing locally and in hosted Windows PowerShell 7. After
   bounded 25-, 40-, and 60-minute attempts, hosted PS5 now owns readiness,
   repository-scan, and whitespace compatibility smoke only; the full PS5
-  self-test remains the measured local gate. The final PR-head result is
-  authoritative.
+  self-test remains the measured local gate. Run `30146459209` then proved
+  that even the standalone scanner fails closed at `git-top-level-process`
+  under the direct hosted PS5 shell. The smoke job now launches
+  `powershell.exe` explicitly from the proven hosted `pwsh` runner shell while
+  retaining real PS5 readiness and repository scanning. The final PR-head
+  result is authoritative.
 - Past runs belong to Git history and pull-request checks.
 
 ## Known issues

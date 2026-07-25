@@ -360,15 +360,15 @@ function Test-WindowsPowerShell51WorkflowJobPolicy {
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: Validate OSS readiness
-        shell: powershell
-        run: ./scripts/validate-oss-readiness.ps1
+        shell: pwsh
+        run: powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ./scripts/validate-oss-readiness.ps1
 
       - name: Scan for private markers
-        shell: powershell
-        run: ./scripts/scan-private-markers.ps1
+        shell: pwsh
+        run: powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ./scripts/scan-private-markers.ps1
 
       - name: Check whitespace
-        shell: powershell
+        shell: pwsh
         run: git diff-tree --check 4b825dc642cb6eb9a060e54bf8d69288fbee4904 HEAD
 '@
         $normalizedBody = ($body -replace '\r\n?', "`n").TrimEnd(
@@ -406,26 +406,30 @@ function Test-WindowsPowerShell51WorkflowJobPolicy {
                 )
             },
             [pscustomobject]@{
-                Name = 'readiness command'
+                Name = 'Windows PowerShell 5.1 readiness command'
                 Pattern = (
                     '(?ms)^      - name: Validate OSS readiness\s*\r?\n' +
-                    '        shell: powershell\s*\r?\n' +
-                    '        run: \./scripts/validate-oss-readiness\.ps1\s*$'
+                    '        shell: pwsh\s*\r?\n' +
+                    '        run: powershell\.exe -NoProfile -NonInteractive ' +
+                    '-ExecutionPolicy Bypass -File ' +
+                    '\./scripts/validate-oss-readiness\.ps1\s*$'
                 )
             },
             [pscustomobject]@{
-                Name = 'private-marker repository scan command'
+                Name = 'Windows PowerShell 5.1 repository scan command'
                 Pattern = (
                     '(?ms)^      - name: Scan for private markers\s*\r?\n' +
-                    '        shell: powershell\s*\r?\n' +
-                    '        run: \./scripts/scan-private-markers\.ps1\s*$'
+                    '        shell: pwsh\s*\r?\n' +
+                    '        run: powershell\.exe -NoProfile -NonInteractive ' +
+                    '-ExecutionPolicy Bypass -File ' +
+                    '\./scripts/scan-private-markers\.ps1\s*$'
                 )
             },
             [pscustomobject]@{
                 Name = 'committed-tree whitespace command'
                 Pattern = (
                     '(?ms)^      - name: Check whitespace\s*\r?\n' +
-                    '        shell: powershell\s*\r?\n' +
+                    '        shell: pwsh\s*\r?\n' +
                     '        run: git diff-tree --check ' +
                     '4b825dc642cb6eb9a060e54bf8d69288fbee4904 HEAD\s*$'
                 )
@@ -459,15 +463,15 @@ jobs:
         uses: actions/checkout@$commit # v5.1.0
 
       - name: Validate OSS readiness
-        shell: powershell
-        run: ./scripts/validate-oss-readiness.ps1
+        shell: pwsh
+        run: powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ./scripts/validate-oss-readiness.ps1
 
       - name: Scan for private markers
-        shell: powershell
-        run: ./scripts/scan-private-markers.ps1
+        shell: pwsh
+        run: powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ./scripts/scan-private-markers.ps1
 
       - name: Check whitespace
-        shell: powershell
+        shell: pwsh
         run: git diff-tree --check 4b825dc642cb6eb9a060e54bf8d69288fbee4904 HEAD
 "@
     $dummy = @"
@@ -478,14 +482,14 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@$commit # v5.1.0
       - name: Validate OSS readiness
-        shell: powershell
-        run: ./scripts/validate-oss-readiness.ps1
-      - name: Test private marker scan
-        shell: powershell
-        run: ./scripts/test-scan-private-markers.ps1
+        shell: pwsh
+        run: powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ./scripts/validate-oss-readiness.ps1
       - name: Scan for private markers
-        shell: powershell
-        run: ./scripts/scan-private-markers.ps1
+        shell: pwsh
+        run: powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ./scripts/scan-private-markers.ps1
+      - name: Check whitespace
+        shell: pwsh
+        run: git diff-tree --check 4b825dc642cb6eb9a060e54bf8d69288fbee4904 HEAD
   validate-windows-powershell-5-1:
     runs-on: windows-latest
     steps:
@@ -507,16 +511,13 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@$commit # v5.1.0
       - name: Validate OSS readiness
-        shell: powershell
-        run: ./scripts/validate-oss-readiness.ps1
-      - name: Test private marker scan
-        shell: powershell
-        run: ./scripts/test-scan-private-markers.ps1
+        shell: pwsh
+        run: powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ./scripts/validate-oss-readiness.ps1
       - name: Scan for private markers
-        shell: powershell
-        run: ./scripts/scan-private-markers.ps1
+        shell: pwsh
+        run: powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ./scripts/scan-private-markers.ps1
       - name: Check whitespace
-        shell: powershell
+        shell: pwsh
         run: git diff-tree --check 4b825dc642cb6eb9a060e54bf8d69288fbee4904 HEAD
 "@
     $scalarSpoof = @"
@@ -526,16 +527,13 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@$commit # v5.1.0
       - name: Validate OSS readiness
-        shell: powershell
-        run: ./scripts/validate-oss-readiness.ps1
-      - name: Test private marker scan
-        shell: powershell
-        run: ./scripts/test-scan-private-markers.ps1
+        shell: pwsh
+        run: powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ./scripts/validate-oss-readiness.ps1
       - name: Scan for private markers
-        shell: powershell
-        run: ./scripts/scan-private-markers.ps1
+        shell: pwsh
+        run: powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ./scripts/scan-private-markers.ps1
       - name: Check whitespace
-        shell: powershell
+        shell: pwsh
         run: git diff-tree --check 4b825dc642cb6eb9a060e54bf8d69288fbee4904 HEAD
     runs-on: windows-latest
     timeout-minutes: 25
@@ -651,15 +649,15 @@ jobs:
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: Validate OSS readiness
-        shell: powershell
-        run: ./scripts/validate-oss-readiness.ps1
+        shell: pwsh
+        run: powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ./scripts/validate-oss-readiness.ps1
 
       - name: Scan for private markers
-        shell: powershell
-        run: ./scripts/scan-private-markers.ps1
+        shell: pwsh
+        run: powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ./scripts/scan-private-markers.ps1
 
       - name: Check whitespace
-        shell: powershell
+        shell: pwsh
         run: git diff-tree --check 4b825dc642cb6eb9a060e54bf8d69288fbee4904 HEAD
 '@
 }
@@ -809,7 +807,8 @@ Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'ubu
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'validate-windows-powershell-5-1:' -Description 'independent Windows PowerShell 5.1 validation job'
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'timeout-minutes:\s*25' -Description 'bounded CI validation jobs'
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern '(?m)^\s*uses:\s*actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09\s+#\s+v5\.1\.0\s*$' -Description 'official immutable checkout action revision'
-Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'shell:\s*powershell' -Description 'Windows PowerShell 5.1 validation in CI'
+Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'powershell\.exe\s+-NoProfile\s+-NonInteractive\s+-ExecutionPolicy\s+Bypass\s+-File\s+\./scripts/validate-oss-readiness\.ps1' -Description 'explicit Windows PowerShell 5.1 readiness validation in CI'
+Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'powershell\.exe\s+-NoProfile\s+-NonInteractive\s+-ExecutionPolicy\s+Bypass\s+-File\s+\./scripts/scan-private-markers\.ps1' -Description 'explicit Windows PowerShell 5.1 repository scan in CI'
 Assert-WorkflowExternalUsesPolicyRegressions
 Assert-AllWorkflowExternalUsesPinned
 Assert-WindowsPowerShell51WorkflowJobRegressions

@@ -24,8 +24,9 @@ The format loosely follows Keep a Changelog conventions.
   custom, and hostile PATH values.
 - Run Windows PowerShell 5.1 validation in its own fresh Windows job instead
   of after the full PowerShell 7 suite. The hosted PowerShell 5.1 job performs
-  readiness, repository scanning, and whitespace compatibility checks within
-  25 minutes; the full self-test remains a measured local PS5 gate and runs in
+  readiness and repository scanning by explicitly launching `powershell.exe`
+  from the hosted `pwsh` runner shell, then checks whitespace, all within
+  25 minutes. The full self-test remains a measured local PS5 gate and runs in
   hosted CI under PowerShell 7 on Windows and Ubuntu. Checked Git fixtures now
   fail at the first broken setup
   prerequisite instead of masking it with a later missing-index exception,
