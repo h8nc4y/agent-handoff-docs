@@ -50,7 +50,10 @@ evidence, the pull request is merged, and the default branch is clean.
   tree-stop, stream-drain, and sentinel assertions remain unchanged.
 - Post-sync Semgrep (82 rules over 32 tracked files), Gitleaks, private-marker,
   YAML parse, BOM, and whitespace checks pass.
-- Pull-request CI has not run yet.
+- PR #3 run `30139528418` passed the full Ubuntu job and Windows PS7
+  readiness/self-test/scan. The former 25-minute job cap then canceled the
+  still-running PS5.1 step without a test failure, so the finite job cap is now
+  40 minutes. The final PR-head result is authoritative.
 - Past runs belong to Git history and pull-request checks.
 
 ## Known issues
@@ -63,4 +66,5 @@ evidence, the pull request is merged, and the default branch is clean.
 
 ## Next step
 
-Commit the focused change, open the pull request, and merge after CI passes.
+Merge PR #3 only after every final-head check passes. On the merged default
+branch, reconcile with `origin/main` before selecting the next work unit.

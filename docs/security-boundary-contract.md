@@ -54,13 +54,13 @@ Prevent two ambient supply-chain paths from influencing repository validation:
 
 | Criterion | Verification | Status |
 | --- | --- | --- |
-| Checkout uses the verified official full SHA | readiness validation and workflow review | locally verified; PR CI pending |
-| Any mutable, aliased, escaped, or malformed external `uses:` fails closed | synthetic positive/negative readiness fixtures on Windows and Ubuntu | locally verified on PS5, PS7, and Linux-equivalent container; PR CI pending |
-| Ambient credential, loader, agent, and custom variables are absent in bounded children | cross-platform environment probe | locally verified on PS5, PS7, and Linux-equivalent container; PR CI pending |
-| Required OS/runtime, isolation, PATH, locale, and Git controls remain usable | cross-platform positive environment probe and full scanner self-test | locally verified on PS5, PS7, and Linux-equivalent container; PR CI pending |
-| Windows PowerShell 5.1 and PowerShell 7 behavior remains compatible | local PS5/PS7 validation and Windows CI | locally verified; PR CI pending |
-| POSIX behavior remains compatible | Linux-equivalent local run and Ubuntu CI | locally verified; PR CI pending |
-| Repository security scan and whitespace checks pass | private-marker scan, Semgrep, Gitleaks, and `git diff --check` | locally verified; PR CI pending |
+| Checkout uses the verified official full SHA | readiness validation and workflow review | locally verified; Windows/Ubuntu PR CI required |
+| Any mutable, aliased, escaped, or malformed external `uses:` fails closed | synthetic positive/negative readiness fixtures on Windows and Ubuntu | locally verified on PS5, PS7, and Linux-equivalent container; Windows/Ubuntu PR CI required |
+| Ambient credential, loader, agent, and custom variables are absent in bounded children | cross-platform environment probe | locally verified on PS5, PS7, and Linux-equivalent container; Windows/Ubuntu PR CI required |
+| Required OS/runtime, isolation, PATH, locale, and Git controls remain usable | cross-platform positive environment probe and full scanner self-test | locally verified on PS5, PS7, and Linux-equivalent container; Windows/Ubuntu PR CI required |
+| Windows PowerShell 5.1 and PowerShell 7 behavior remains compatible | local PS5/PS7 validation and Windows CI | locally verified; Windows PR CI required |
+| POSIX behavior remains compatible | Linux-equivalent local run and Ubuntu CI | locally verified; Ubuntu PR CI required |
+| Repository security scan and whitespace checks pass | private-marker scan, Semgrep, Gitleaks, and `git diff --check` | locally verified; Windows/Ubuntu PR CI required |
 
 ## Non-goals
 

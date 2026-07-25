@@ -22,6 +22,9 @@ The format loosely follows Keep a Changelog conventions.
   explicit Git/test inputs. Add Windows/POSIX positive and negative fixtures
   for required runtime values and forbidden credential, loader, agent, cloud,
   custom, and hostile PATH values.
+- Keep each CI matrix job bounded at 40 minutes. A measured Windows run
+  completed the PowerShell 7 suite but reached the former 25-minute job limit
+  while the same full suite was still running under Windows PowerShell 5.1.
 - Preserve git's forward-slash tracked paths when resolving files so
   nested files remain in the private-marker scan on Windows and POSIX.
   The previous Windows-only backslash conversion made tracked nested files
