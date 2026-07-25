@@ -23,9 +23,11 @@ The format loosely follows Keep a Changelog conventions.
   for required runtime values and forbidden credential, loader, agent, cloud,
   custom, and hostile PATH values.
 - Run Windows PowerShell 5.1 validation in its own fresh Windows job instead
-  of after the full PowerShell 7 suite. Each runtime keeps an independent
-  25-minute bound, and checked Git fixtures now fail at the first broken setup
-  prerequisite instead of masking it with a later missing-index exception.
+  of after the full PowerShell 7 suite. Keep the PowerShell 7 matrix at
+  25 minutes and give the measured slower PowerShell 5.1 job an independent
+  40-minute bound. Checked Git fixtures now fail at the first broken setup
+  prerequisite instead of masking it with a later missing-index exception,
+  and use a finite 60-second setup budget on the loaded PowerShell 5.1 runner.
   Scope readiness assertions and regressions to that exact job block so the
   main matrix cannot mask a missing PS5.1 step or timeout. Require the complete
   built-in validation workflow to match its reviewed canonical source so an

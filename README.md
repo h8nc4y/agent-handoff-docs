@@ -340,7 +340,8 @@ The GitHub Actions workflow runs the same validation, scan self-test,
 private-marker scan, and a committed-tree whitespace check on both
 Windows and Ubuntu for pull requests and pushes to `main`. The Windows
 checks run under PowerShell 7 and Windows PowerShell 5.1 in independent jobs
-so each runtime starts from a fresh runner. Each runtime job has a 25-minute
+so each runtime starts from a fresh runner. The PowerShell 7 matrix jobs have
+25-minute timeouts; the slower Windows PowerShell 5.1 job has a 40-minute
 timeout. The readiness validator scans every
 active external `uses:` entry under `.github/workflows/` and fails closed
 unless it is pinned to a full lowercase 40-character commit SHA; repository-

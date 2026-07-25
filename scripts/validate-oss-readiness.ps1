@@ -354,7 +354,7 @@ function Test-WindowsPowerShell51WorkflowJobPolicy {
         $expectedBody = @'
     name: Validate skill repository (windows-latest, PowerShell 5.1)
     runs-on: windows-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     steps:
       - name: Check out repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
@@ -397,8 +397,8 @@ function Test-WindowsPowerShell51WorkflowJobPolicy {
                 Pattern = '(?m)^    runs-on:\s*windows-latest\s*$'
             },
             [pscustomobject]@{
-                Name = '25-minute bound'
-                Pattern = '(?m)^    timeout-minutes:\s*25\s*$'
+                Name = '40-minute bound'
+                Pattern = '(?m)^    timeout-minutes:\s*40\s*$'
             },
             [pscustomobject]@{
                 Name = 'official immutable checkout'
@@ -465,7 +465,7 @@ jobs:
   validate-windows-powershell-5-1:
     name: Validate skill repository (windows-latest, PowerShell 5.1)
     runs-on: windows-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     steps:
       - name: Check out repository
         uses: actions/checkout@$commit # v5.1.0
@@ -661,7 +661,7 @@ jobs:
   validate-windows-powershell-5-1:
     name: Validate skill repository (windows-latest, PowerShell 5.1)
     runs-on: windows-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     steps:
       - name: Check out repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
@@ -827,7 +827,8 @@ Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'tes
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'windows-latest' -Description 'Windows validation runner in CI'
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'ubuntu-latest' -Description 'Ubuntu validation runner in CI'
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'validate-windows-powershell-5-1:' -Description 'independent Windows PowerShell 5.1 validation job'
-Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'timeout-minutes:\s*25' -Description 'bounded CI validation job'
+Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'timeout-minutes:\s*25' -Description 'bounded PowerShell 7 CI validation job'
+Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'timeout-minutes:\s*40' -Description 'bounded Windows PowerShell 5.1 CI validation job'
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern '(?m)^\s*uses:\s*actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09\s+#\s+v5\.1\.0\s*$' -Description 'official immutable checkout action revision'
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'shell:\s*powershell' -Description 'Windows PowerShell 5.1 validation in CI'
 Assert-WorkflowExternalUsesPolicyRegressions

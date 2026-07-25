@@ -45,8 +45,8 @@ evidence, the pull request is merged, and the default branch is clean.
 
 - PS5, PS7, and Linux-equivalent readiness validation passes.
 - PS5, PS7, and Linux-equivalent private-marker self-tests pass. The final
-  fresh-process PS5 run completed in 194.6 seconds after the fixture
-  prerequisite guards were added.
+  fresh-process PS5 run completed in 189.7 seconds after the fixture
+  prerequisite guards and checked-setup budget were added.
 - PS5, PS7, and Linux-equivalent repository private-marker scans pass.
 - Independent adversarial review found no remaining P1/P2/P3 issue after the
   YAML-shape, canonical-job, sentinel-fixture, and finite Windows launch-budget
@@ -62,7 +62,10 @@ evidence, the pull request is merged, and the default branch is clean.
   still-running PS5.1 step. Run `30140406899` exposed a masked PS5.1 fixture
   prerequisite failure after the earlier PS7 suite. PS5.1 now has a fresh,
   independently bounded Windows job, and checked fixtures fail at their actual
-  setup error. The final PR-head result is authoritative.
+  setup error. Fresh-job run `30141534665` then measured a checked fixture Git
+  operation exceeding 20 seconds under runner load. Checked setup Git now has
+  a finite 60-second budget and the independent PS5.1 job has a measured
+  40-minute bound. The final PR-head result is authoritative.
 - Past runs belong to Git history and pull-request checks.
 
 ## Known issues

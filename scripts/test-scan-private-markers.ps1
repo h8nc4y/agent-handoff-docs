@@ -421,7 +421,10 @@ function Invoke-IsolatedGit {
         [hashtable]$InheritedEnvironment = @{},
 
         [AllowNull()]
-        [byte[]]$StandardInputBytes = $null
+        [byte[]]$StandardInputBytes = $null,
+
+        [ValidateRange(1, [int]::MaxValue)]
+        [int]$TimeoutMilliseconds = 20000
     )
 
     return Invoke-PrivateMarkerBoundedProcess `
@@ -431,7 +434,7 @@ function Invoke-IsolatedGit {
         -WorkingDirectory $WorkingDirectory `
         -InheritedEnvironment $InheritedEnvironment `
         -StandardInputBytes $StandardInputBytes `
-        -TimeoutMilliseconds 20000
+        -TimeoutMilliseconds $TimeoutMilliseconds
 }
 
 function Start-SynchronizedIndexMutator {
@@ -1939,12 +1942,18 @@ cat
                 [string]$Context
             )
 
+            # GitHub's Windows PowerShell 5.1 runner can need more than the
+            # normal 20-second probe budget after the full adversarial suite.
+            # Keep setup finite while avoiding a runner-load false negative;
+            # behavioral timeout fixtures continue to use their smaller,
+            # explicit deadlines.
             $result = Invoke-IsolatedGit `
                 -GitPath $gitCommand.Source `
                 -WorkingDirectory $FixtureRoot `
                 -IsolationRoot $gitIsolationRoot `
                 -Arguments $Arguments `
-                -InheritedEnvironment $adversarialEnvironment
+                -InheritedEnvironment $adversarialEnvironment `
+                -TimeoutMilliseconds 60000
             if ($result.ExitCode -ne 0 -or
                 -not (Test-BoundedResultHealthy -Result $result)) {
                 # Every caller assumes the requested setup mutation completed.
