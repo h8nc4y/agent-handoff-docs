@@ -336,13 +336,16 @@ Also run Git whitespace checks on your working changes before publishing:
 git diff --check
 ```
 
-The GitHub Actions workflow runs the same validation, scan self-test,
-private-marker scan, and a committed-tree whitespace check on both
-Windows and Ubuntu for pull requests and pushes to `main`. The Windows
-checks run under PowerShell 7 and Windows PowerShell 5.1 in independent jobs
-so each runtime starts from a fresh runner. The PowerShell 7 matrix jobs have
-25-minute timeouts; the slower Windows PowerShell 5.1 job has a 60-minute
-timeout. The readiness validator scans every
+The GitHub Actions workflow runs readiness validation, the full scan self-test,
+the private-marker scan, and a committed-tree whitespace check under
+PowerShell 7 on Windows and Ubuntu for pull requests and pushes to `main`.
+An independent bounded Windows PowerShell 5.1 compatibility job runs
+readiness, the repository scan, and the whitespace check on a fresh runner.
+The full Windows PowerShell 5.1 self-test remains a measured local gate because
+GitHub's hosted `powershell` step made nested bounded children repeatedly hit
+their deadlines, while the same suite passes locally and under PowerShell 7 on
+the Windows runner. Every CI job has a 25-minute timeout. The readiness
+validator scans every
 active external `uses:` entry under `.github/workflows/` and fails closed
 unless it is pinned to a full lowercase 40-character commit SHA; repository-
 local `./` actions remain allowed. To keep the Windows PowerShell 5.1 policy

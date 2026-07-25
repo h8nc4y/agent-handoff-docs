@@ -71,7 +71,13 @@ evidence, the pull request is merged, and the default branch is clean.
   "not a git repository" exception; those calls now use the same fail-fast
   checked setup contract. Run `30143522076` passed both PS7 jobs and reported
   no PS5.1 fixture failure before its 40-minute cap canceled the still-running
-  self-test. The final PR-head result is authoritative.
+  self-test. Run `30144735948` showed that the hosted direct PowerShell 5.1
+  step makes nearly every nested bounded child reach its deadline, despite the
+  same full suite passing locally and in hosted Windows PowerShell 7. After
+  bounded 25-, 40-, and 60-minute attempts, hosted PS5 now owns readiness,
+  repository-scan, and whitespace compatibility smoke only; the full PS5
+  self-test remains the measured local gate. The final PR-head result is
+  authoritative.
 - Past runs belong to Git history and pull-request checks.
 
 ## Known issues
