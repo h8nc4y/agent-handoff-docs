@@ -45,6 +45,34 @@ if (-not (Test-Path -LiteralPath $currentPowerShellExecutable -PathType Leaf)) {
     throw "Cannot resolve the current PowerShell host executable: $currentPowerShellExecutable"
 }
 
+# Scanner-entrypoint fixtures need Git command discovery without inheriting the
+# caller's complete PATH. Resolve Git once in the trusted parent, then pass a
+# bounded path made only from its directory and fixed OS command directories.
+$scannerGitCommands = @(
+    Get-Command git -CommandType Application -ErrorAction SilentlyContinue
+)
+$scannerPathEntries = New-Object System.Collections.Generic.List[string]
+if ($scannerGitCommands.Count -gt 0) {
+    $scannerPathEntries.Add(
+        (Split-Path -Parent $scannerGitCommands[0].Source)
+    ) | Out-Null
+}
+if ($runtimeIsWindows) {
+    if (-not [string]::IsNullOrWhiteSpace([Environment]::SystemDirectory)) {
+        $scannerPathEntries.Add([Environment]::SystemDirectory) | Out-Null
+    }
+}
+else {
+    foreach ($systemPath in @('/usr/bin', '/bin')) {
+        if (Test-Path -LiteralPath $systemPath -PathType Container) {
+            $scannerPathEntries.Add($systemPath) | Out-Null
+        }
+    }
+}
+$scannerDefaultPath = @(
+    $scannerPathEntries | Select-Object -Unique
+) -join [IO.Path]::PathSeparator
+
 $failures = New-Object System.Collections.Generic.List[string]
 
 function Add-Failure {
@@ -86,6 +114,28 @@ function Assert-ProcessEnvironmentUnchanged {
     if ($mismatches.Count -gt 0) {
         Add-Failure "$Context changed parent environment variables: $($mismatches -join ', ')."
     }
+}
+
+function ConvertTo-SyntheticShellSingleQuotedLiteral {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Value
+    )
+
+    # POSIX shells represent one literal apostrophe by closing the single-
+    # quoted segment, emitting a double-quoted apostrophe, and reopening it.
+    # Build the delimiter from character codes so this PowerShell source stays
+    # readable and the caller-controlled temp path is never evaluated as code.
+    $singleQuote = [string][char]39
+    $doubleQuote = [string][char]34
+    $escapedQuote = $singleQuote +
+        $doubleQuote +
+        $singleQuote +
+        $doubleQuote +
+        $singleQuote
+    return $singleQuote +
+        $Value.Replace($singleQuote, $escapedQuote) +
+        $singleQuote
 }
 
 function Test-BoundedResultHealthy {
@@ -326,11 +376,18 @@ function Invoke-Scanner {
     ) ("agent-handoff-docs-scanner-git-" + [System.Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $scannerIsolationRoot | Out-Null
     try {
+        $scannerEnvironment = @{
+            PATH = $scannerDefaultPath
+        }
+        foreach ($name in $InheritedEnvironment.Keys) {
+            $scannerEnvironment["$name"] =
+                [string]$InheritedEnvironment[$name]
+        }
         $result = Invoke-PrivateMarkerBoundedProcess `
             -FileName $currentPowerShellExecutable `
             -Arguments $arguments `
             -IsolationRoot $scannerIsolationRoot `
-            -InheritedEnvironment $InheritedEnvironment `
+            -InheritedEnvironment $scannerEnvironment `
             -TimeoutMilliseconds 30000 `
             -MaxStdoutBytes $MaxStdoutBytes `
             -MaxStderrBytes $MaxStderrBytes `
@@ -364,7 +421,10 @@ function Invoke-IsolatedGit {
         [hashtable]$InheritedEnvironment = @{},
 
         [AllowNull()]
-        [byte[]]$StandardInputBytes = $null
+        [byte[]]$StandardInputBytes = $null,
+
+        [ValidateRange(1, [int]::MaxValue)]
+        [int]$TimeoutMilliseconds = 20000
     )
 
     return Invoke-PrivateMarkerBoundedProcess `
@@ -374,7 +434,7 @@ function Invoke-IsolatedGit {
         -WorkingDirectory $WorkingDirectory `
         -InheritedEnvironment $InheritedEnvironment `
         -StandardInputBytes $StandardInputBytes `
-        -TimeoutMilliseconds 20000
+        -TimeoutMilliseconds $TimeoutMilliseconds
 }
 
 function Start-SynchronizedIndexMutator {
@@ -601,6 +661,215 @@ exit 37
         }
     }
 
+    # Run one real child on both Windows and POSIX to prove the minimum
+    # environment's positive requirements and representative negative
+    # boundaries. The probe reports names only and never emits environment
+    # values.
+    $environmentProbeScript = @'
+$forbiddenNames = @(
+    'AGENT_HANDOFF_DOCS_AMBIENT_NEGATIVE_PROBE',
+    'AGENT_HANDOFF_DOCS_REQUESTED_NEGATIVE_PROBE',
+    'AWS_ACCESS_KEY_ID',
+    'GH_TOKEN',
+    'SSH_AUTH_SOCK',
+    'LD_PRELOAD',
+    'NODE_OPTIONS',
+    'PYTHONPATH',
+    'GIT_SYNTHETIC_REQUESTED_OVERRIDE'
+)
+$failures = New-Object System.Collections.Generic.List[string]
+foreach ($name in $forbiddenNames) {
+    if ($null -ne [Environment]::GetEnvironmentVariable($name, 'Process')) {
+        $failures.Add("forbidden:$name") | Out-Null
+    }
+}
+foreach ($name in @(
+    'HOME',
+    'USERPROFILE',
+    'XDG_CONFIG_HOME',
+    'PATH',
+    'TEMP',
+    'TMP',
+    'LC_ALL',
+    'LANG',
+    'GIT_CONFIG_NOSYSTEM',
+    'GIT_CONFIG_GLOBAL',
+    'GIT_CONFIG_SYSTEM',
+    'GIT_NO_REPLACE_OBJECTS',
+    'GIT_NO_LAZY_FETCH'
+)) {
+    if ([string]::IsNullOrWhiteSpace(
+            [Environment]::GetEnvironmentVariable($name, 'Process')
+        )) {
+        $failures.Add("missing:$name") | Out-Null
+    }
+}
+$isWindows = [Environment]::OSVersion.Platform -eq
+    [PlatformID]::Win32NT
+if ($isWindows) {
+    foreach ($name in @('SystemRoot', 'WINDIR', 'ComSpec', 'PATHEXT')) {
+        if ([string]::IsNullOrWhiteSpace(
+                [Environment]::GetEnvironmentVariable($name, 'Process')
+            )) {
+            $failures.Add("windows-missing:$name") | Out-Null
+        }
+    }
+}
+elseif ([string]::IsNullOrWhiteSpace($env:TMPDIR)) {
+    $failures.Add('posix-missing:TMPDIR') | Out-Null
+}
+if ($env:PATH -like '*AGENT_HANDOFF_DOCS_AMBIENT_PATH_PROBE*') {
+    $failures.Add('ambient-path') | Out-Null
+}
+if ($env:GIT_CONFIG_NOSYSTEM -cne '1' -or
+    $env:GIT_NO_REPLACE_OBJECTS -cne '1' -or
+    $env:GIT_NO_LAZY_FETCH -cne '1') {
+    $failures.Add('git-controls') | Out-Null
+}
+if ($failures.Count -gt 0) {
+    [Console]::Error.Write($failures -join ',')
+    exit 72
+}
+[Console]::Out.Write('minimum-environment-pass')
+'@
+    $environmentProbeEncoded = [Convert]::ToBase64String(
+        [Text.Encoding]::Unicode.GetBytes($environmentProbeScript)
+    )
+    $environmentProbeArguments = @('-NoProfile')
+    if ($PSVersionTable.PSVersion.Major -le 5 -and $runtimeIsWindows) {
+        $environmentProbeArguments += @('-ExecutionPolicy', 'Bypass')
+    }
+    $environmentProbeArguments += @(
+        '-EncodedCommand',
+        $environmentProbeEncoded
+    )
+    $ambientProbeName =
+        'AGENT_HANDOFF_DOCS_AMBIENT_NEGATIVE_PROBE'
+    $ambientEnvironment =
+        [Environment]::GetEnvironmentVariables('Process')
+    $ambientProbeWasPresent = $ambientEnvironment.Contains($ambientProbeName)
+    $ambientProbePrevious = [Environment]::GetEnvironmentVariable(
+        $ambientProbeName,
+        'Process'
+    )
+    $beforeEnvironmentProbe = Get-ProcessEnvironmentSnapshot
+    try {
+        [Environment]::SetEnvironmentVariable(
+            $ambientProbeName,
+            'synthetic-ambient-value',
+            'Process'
+        )
+        $environmentProbeResult = Invoke-PrivateMarkerBoundedProcess `
+            -FileName $currentPowerShellExecutable `
+            -Arguments $environmentProbeArguments `
+            -IsolationRoot (
+                Join-Path $tempRoot 'minimum-environment-isolation'
+            ) `
+            -InheritedEnvironment @{
+                AGENT_HANDOFF_DOCS_REQUESTED_NEGATIVE_PROBE =
+                    'synthetic-requested-value'
+                AWS_ACCESS_KEY_ID = 'synthetic-credential'
+                GH_TOKEN = 'synthetic-credential'
+                SSH_AUTH_SOCK = 'synthetic-agent'
+                LD_PRELOAD = '/synthetic/not-a-library'
+                NODE_OPTIONS = '--synthetic-option'
+                PYTHONPATH = 'synthetic-python-path'
+                GIT_SYNTHETIC_REQUESTED_OVERRIDE = 'synthetic-git-value'
+                PATH = 'AGENT_HANDOFF_DOCS_AMBIENT_PATH_PROBE'
+            } `
+            -TimeoutMilliseconds 30000 `
+            -MaxStdoutBytes 128 `
+            -MaxStderrBytes 4096
+    }
+    finally {
+        if ($ambientProbeWasPresent) {
+            [Environment]::SetEnvironmentVariable(
+                $ambientProbeName,
+                $ambientProbePrevious,
+                'Process'
+            )
+        }
+        else {
+            Remove-Item `
+                -LiteralPath ('Env:\' + $ambientProbeName) `
+                -Force `
+                -ErrorAction SilentlyContinue
+        }
+    }
+    $environmentProbeText = [Text.Encoding]::UTF8.GetString(
+        $environmentProbeResult.StdoutBytes
+    )
+    if (-not (Test-BoundedResultHealthy -Result $environmentProbeResult) -or
+        $environmentProbeResult.ExitCode -ne 0 -or
+        $environmentProbeText -ne 'minimum-environment-pass') {
+        Add-Failure (
+            'Expected the bounded child to receive only the minimum ' +
+            "cross-platform environment allowlist (exit " +
+            "$($environmentProbeResult.ExitCode))."
+        )
+    }
+    Assert-ProcessEnvironmentUnchanged `
+        -Expected $beforeEnvironmentProbe `
+        -Context 'Minimum child environment probe'
+
+    # The scanner-entrypoint bridge is intentionally narrower than general
+    # inheritance: explicit GIT_*, PATH, and documented local-marker inputs
+    # pass for hostile-scanner fixtures, while unrelated requested and ambient
+    # values stay absent.
+    $passThroughProbeScript = @'
+$gitPassed = $env:GIT_SYNTHETIC_PASS_THROUGH -ceq 'expected'
+$pathPassed = @(
+    $env:PATH -split [regex]::Escape([string][IO.Path]::PathSeparator)
+) -contains 'synthetic-explicit-path'
+$unrelatedBlocked =
+    $null -eq $env:AGENT_HANDOFF_DOCS_REQUESTED_NEGATIVE_PROBE -and
+    $null -eq $env:AWS_ACCESS_KEY_ID
+if (-not $gitPassed -or -not $pathPassed -or -not $unrelatedBlocked) {
+    exit 73
+}
+[Console]::Out.Write('pass-through-allowlist-pass')
+'@
+    $passThroughProbeEncoded = [Convert]::ToBase64String(
+        [Text.Encoding]::Unicode.GetBytes($passThroughProbeScript)
+    )
+    $passThroughProbeArguments = @('-NoProfile')
+    if ($PSVersionTable.PSVersion.Major -le 5 -and $runtimeIsWindows) {
+        $passThroughProbeArguments += @('-ExecutionPolicy', 'Bypass')
+    }
+    $passThroughProbeArguments += @(
+        '-EncodedCommand',
+        $passThroughProbeEncoded
+    )
+    $passThroughProbeResult = Invoke-PrivateMarkerBoundedProcess `
+        -FileName $currentPowerShellExecutable `
+        -Arguments $passThroughProbeArguments `
+        -IsolationRoot (
+            Join-Path $tempRoot 'pass-through-environment-isolation'
+        ) `
+        -InheritedEnvironment @{
+            GIT_SYNTHETIC_PASS_THROUGH = 'expected'
+            PATH = 'synthetic-explicit-path'
+            AGENT_HANDOFF_DOCS_REQUESTED_NEGATIVE_PROBE =
+                'synthetic-requested-value'
+            AWS_ACCESS_KEY_ID = 'synthetic-credential'
+        } `
+        -PassThroughGitEnvironment `
+        -TimeoutMilliseconds 30000 `
+        -MaxStdoutBytes 128 `
+        -MaxStderrBytes 4096
+    $passThroughProbeText = [Text.Encoding]::UTF8.GetString(
+        $passThroughProbeResult.StdoutBytes
+    )
+    if (-not (Test-BoundedResultHealthy -Result $passThroughProbeResult) -or
+        $passThroughProbeResult.ExitCode -ne 0 -or
+        $passThroughProbeText -ne 'pass-through-allowlist-pass') {
+        Add-Failure (
+            'Expected the scanner-entrypoint environment bridge to pass only ' +
+            "explicit Git/test inputs and PATH values (exit " +
+            "$($passThroughProbeResult.ExitCode))."
+        )
+    }
+
     # A delayed grandchild sentinel distinguishes true tree cleanup from a
     # parent-only kill. The grandchild also keeps the redirected pipe open.
     $timeoutIsolationRoot = Join-Path $tempRoot 'timeout-isolation'
@@ -734,13 +1003,18 @@ Start-Sleep -Milliseconds 1000
             $raceArguments += @('-ExecutionPolicy', 'Bypass')
         }
         $raceArguments += @('-EncodedCommand', $raceParentEncoded)
+        # Starting three PowerShell processes (gate, parent, grandchild) can
+        # exceed five seconds on a loaded Windows host. The containment claim is
+        # the zero-wait spawn plus sentinel suppression, so keep a wider but
+        # still finite launch budget to avoid converting scheduler delay into a
+        # false security failure.
         $raceResult = Invoke-PrivateMarkerBoundedProcess `
             -FileName $currentPowerShellExecutable `
             -Arguments $raceArguments `
             -IsolationRoot (
                 Join-Path $tempRoot "immediate-race-isolation-$raceAttempt"
             ) `
-            -TimeoutMilliseconds 5000 `
+            -TimeoutMilliseconds 10000 `
             -DrainTimeoutMilliseconds 3000 `
             -ForceNativePosixSessionGate:(
                 -not $runtimeIsWindows -and $raceAttempt -eq 1
@@ -748,7 +1022,14 @@ Start-Sleep -Milliseconds 1000
         if ($raceResult.TimedOut -or
             -not $raceResult.TreeStopped -or
             -not $raceResult.StreamsDrained) {
-            Add-Failure "Expected immediate-spawn race attempt $raceAttempt to stop its full process tree."
+            Add-Failure (
+                "Expected immediate-spawn race attempt $raceAttempt to stop " +
+                'its full process tree ' +
+                "(exit $($raceResult.ExitCode), timeout " +
+                "$($raceResult.TimedOut), tree " +
+                "$($raceResult.TreeStopped), streams " +
+                "$($raceResult.StreamsDrained))."
+            )
         }
     }
     Start-Sleep -Milliseconds 1300
@@ -1505,17 +1786,25 @@ You can also write C:\Users\<name>\project to describe a user directory.
         # as an adversarial regression. The isolated wrapper must suppress all
         # of them, and must restore the caller's exact environment afterward.
         $hookPath = Join-Path $ambientHooksRoot 'post-index-change'
-        $hookContent = @'
+        $hookSentinelShellLiteral =
+            ConvertTo-SyntheticShellSingleQuotedLiteral -Value (
+                $hookSentinel.Replace([string][char]92, '/')
+            )
+        $hookContent = @"
 #!/bin/sh
-printf '%s\n' 'hook-fired' > "$HANDOFF_TEST_HOOK_SENTINEL"
-'@
+printf '%s\n' 'hook-fired' > $hookSentinelShellLiteral
+"@
         [System.IO.File]::WriteAllText($hookPath, $hookContent, [System.Text.UTF8Encoding]::new($false))
         $filterPath = Join-Path $ambientFilterRoot 'clean-filter'
-        $filterContent = @'
+        $filterSentinelShellLiteral =
+            ConvertTo-SyntheticShellSingleQuotedLiteral -Value (
+                $filterSentinel.Replace([string][char]92, '/')
+            )
+        $filterContent = @"
 #!/bin/sh
-printf '%s\n' 'filter-fired' > "$HANDOFF_TEST_FILTER_SENTINEL"
+printf '%s\n' 'filter-fired' > $filterSentinelShellLiteral
 cat
-'@
+"@
         [System.IO.File]::WriteAllText($filterPath, $filterContent, [System.Text.UTF8Encoding]::new($false))
         $ambientAttributes = Join-Path $ambientFilterRoot 'global-attributes'
         [System.IO.File]::WriteAllText(
@@ -1538,6 +1827,77 @@ cat
                 -not $chmodResult.StreamsDrained) {
                 Add-Failure "Expected bounded synthetic hook/filter chmod to exit 0. Output: $($chmodResult.Output.Trim())"
             }
+        }
+
+        # Prove both sentinels are independently observable without the
+        # environment variables that the minimum child allowlist now drops.
+        # Remove the canary outputs before the hostile Git regression so only
+        # an actual isolation failure can recreate them.
+        $shellPathCandidates =
+            New-Object System.Collections.Generic.List[string]
+        $shellCommands = @(
+            Get-Command `
+                sh `
+                -CommandType Application `
+                -ErrorAction SilentlyContinue
+        )
+        foreach ($shellCommand in $shellCommands) {
+            $shellPathCandidates.Add($shellCommand.Source) | Out-Null
+        }
+        if ($runtimeIsWindows) {
+            $gitInstallRoot = Split-Path -Parent (
+                Split-Path -Parent $gitCommand.Source
+            )
+            foreach ($relativeShellPath in @(
+                'bin\sh.exe',
+                'usr\bin\sh.exe'
+            )) {
+                $shellPathCandidates.Add(
+                    (Join-Path $gitInstallRoot $relativeShellPath)
+                ) | Out-Null
+            }
+        }
+        else {
+            foreach ($systemShellPath in @('/bin/sh', '/usr/bin/sh')) {
+                $shellPathCandidates.Add($systemShellPath) | Out-Null
+            }
+        }
+        $shellPath = @(
+            $shellPathCandidates |
+                Where-Object {
+                    Test-Path -LiteralPath $_ -PathType Leaf
+                } |
+                Select-Object -Unique
+        ) | Select-Object -First 1
+        if ([string]::IsNullOrWhiteSpace($shellPath)) {
+            Add-Failure 'Expected a shell to exercise synthetic hook/filter sentinel canaries.'
+        }
+        else {
+            $sentinelCanaryIsolation =
+                Join-Path $tempRoot 'sentinel-canary-isolation'
+            $hookCanaryResult = Invoke-PrivateMarkerBoundedProcess `
+                -FileName $shellPath `
+                -Arguments @($hookPath) `
+                -IsolationRoot $sentinelCanaryIsolation `
+                -TimeoutMilliseconds 10000
+            $filterCanaryResult = Invoke-PrivateMarkerBoundedProcess `
+                -FileName $shellPath `
+                -Arguments @($filterPath) `
+                -IsolationRoot $sentinelCanaryIsolation `
+                -StandardInputBytes ([byte[]]@()) `
+                -TimeoutMilliseconds 10000
+            if (-not (Test-BoundedResultHealthy -Result $hookCanaryResult) -or
+                $hookCanaryResult.ExitCode -ne 0 -or
+                -not (Test-Path -LiteralPath $hookSentinel)) {
+                Add-Failure 'Expected the embedded hook sentinel path canary to be observable without ambient variables.'
+            }
+            if (-not (Test-BoundedResultHealthy -Result $filterCanaryResult) -or
+                $filterCanaryResult.ExitCode -ne 0 -or
+                -not (Test-Path -LiteralPath $filterSentinel)) {
+                Add-Failure 'Expected the embedded filter sentinel path canary to be observable without ambient variables.'
+            }
+            [IO.File]::Delete($hookSentinel)
+            [IO.File]::Delete($filterSentinel)
         }
 
         $beforeFixtureEnvironment = Get-ProcessEnvironmentSnapshot
@@ -1582,15 +1942,27 @@ cat
                 [string]$Context
             )
 
+            # GitHub's Windows PowerShell 5.1 runner can need more than the
+            # normal 20-second probe budget after the full adversarial suite.
+            # Keep setup finite while avoiding a runner-load false negative;
+            # behavioral timeout fixtures continue to use their smaller,
+            # explicit deadlines.
             $result = Invoke-IsolatedGit `
                 -GitPath $gitCommand.Source `
                 -WorkingDirectory $FixtureRoot `
                 -IsolationRoot $gitIsolationRoot `
                 -Arguments $Arguments `
-                -InheritedEnvironment $adversarialEnvironment
+                -InheritedEnvironment $adversarialEnvironment `
+                -TimeoutMilliseconds 60000
             if ($result.ExitCode -ne 0 -or
                 -not (Test-BoundedResultHealthy -Result $result)) {
-                Add-Failure "$Context failed with exit $($result.ExitCode). Output: $($result.Output.Trim())"
+                # Every caller assumes the requested setup mutation completed.
+                # Stop at the first broken prerequisite so a later missing index
+                # cannot mask the actual bounded-process failure.
+                throw (
+                    "$Context failed with exit $($result.ExitCode). " +
+                    "Output: $($result.Output.Trim())"
+                )
             }
             return $result
         }
@@ -1604,21 +1976,18 @@ cat
                 -FixtureRoot $fixtureRoot `
                 -Arguments @('init', '--quiet') `
                 -Context "Initialize $Name")
+            if (-not (Test-Path `
+                    -LiteralPath (Join-Path $fixtureRoot '.git') `
+                    -PathType Container)) {
+                throw "Initialize $Name returned success without creating .git."
+            }
             return $fixtureRoot
         }
 
-        $gitInitResult = Invoke-IsolatedGit `
-            -GitPath $gitCommand.Source `
-            -WorkingDirectory $gitRoot `
-            -IsolationRoot $gitIsolationRoot `
-            -Arguments @('init', '--quiet') `
-            -InheritedEnvironment $adversarialEnvironment
-        if ($gitInitResult.ExitCode -ne 0 -or
-            $gitInitResult.TimedOut -or
-            -not $gitInitResult.TreeStopped -or
-            -not $gitInitResult.StreamsDrained) {
-            Add-Failure "Expected isolated git init to exit 0. Output: $($gitInitResult.Output.Trim())"
-        }
+        # The primary fixture has the same setup contract as every later Git
+        # fixture. Fail here if init did not create a repository; otherwise a
+        # later add can misreport the setup failure as "not a git repository."
+        $gitRoot = New-CheckedGitFixture -Name 'git-tracked'
         Assert-ProcessEnvironmentUnchanged `
             -Expected $beforeFixtureEnvironment `
             -Context 'Isolated git init'
@@ -1626,21 +1995,18 @@ cat
         # Preserve a valid clean alternate index. A later public-entrypoint
         # regression passes only GIT_INDEX_FILE; if the scanner trusts ambient
         # Git state, the real staged markers disappear and the test false-passes.
-        $emptyIndexResult = Invoke-IsolatedGit `
-            -GitPath $gitCommand.Source `
-            -WorkingDirectory $gitRoot `
-            -IsolationRoot $gitIsolationRoot `
+        [void](Invoke-CheckedFixtureGit `
+            -FixtureRoot $gitRoot `
             -Arguments @('read-tree', '--empty') `
-            -InheritedEnvironment $adversarialEnvironment
-        if ($emptyIndexResult.ExitCode -ne 0 -or
-            -not (Test-BoundedResultHealthy -Result $emptyIndexResult)) {
-            Add-Failure "Expected isolated empty index creation to exit 0. Output: $($emptyIndexResult.Output.Trim())"
-        } else {
-            Copy-Item `
-                -LiteralPath (Join-Path $gitRoot '.git/index') `
-                -Destination $ambientIndexFile `
-                -Force
+            -Context 'Create primary fixture empty index')
+        $primaryIndexPath = Join-Path $gitRoot '.git/index'
+        if (-not [IO.File]::Exists($primaryIndexPath)) {
+            throw 'Create primary fixture empty index returned success without creating .git/index.'
         }
+        Copy-Item `
+            -LiteralPath $primaryIndexPath `
+            -Destination $ambientIndexFile `
+            -Force
 
         $nestedDirectory = Join-Path $gitRoot (Join-Path 'sub' 'deep')
         New-Item -ItemType Directory -Path $nestedDirectory -Force | Out-Null
@@ -1666,18 +2032,10 @@ cat
                 -Encoding UTF8
         }
 
-        $gitAddResult = Invoke-IsolatedGit `
-            -GitPath $gitCommand.Source `
-            -WorkingDirectory $gitRoot `
-            -IsolationRoot $gitIsolationRoot `
+        [void](Invoke-CheckedFixtureGit `
+            -FixtureRoot $gitRoot `
             -Arguments @('add', '-A') `
-            -InheritedEnvironment $adversarialEnvironment
-        if ($gitAddResult.ExitCode -ne 0 -or
-            $gitAddResult.TimedOut -or
-            -not $gitAddResult.TreeStopped -or
-            -not $gitAddResult.StreamsDrained) {
-            Add-Failure "Expected isolated git add to exit 0. Output: $($gitAddResult.Output.Trim())"
-        }
+            -Context 'Stage primary marker fixture')
         Assert-ProcessEnvironmentUnchanged `
             -Expected $beforeFixtureEnvironment `
             -Context 'Isolated git add'
@@ -1840,6 +2198,9 @@ cat
             -Arguments @('add', '-A') `
             -Context 'Stage clean drift index')
         $driftIndexPath = Join-Path $driftRoot '.git/index'
+        if (-not [IO.File]::Exists($driftIndexPath)) {
+            throw 'Stage clean drift index returned success without creating .git/index.'
+        }
         $cleanIndexTemplate = Join-Path $driftRoot '.git/clean-index-template'
         $changedIndexTemplate = Join-Path `
             $driftRoot `
@@ -2506,12 +2867,16 @@ if (-not `$readyObserved) {
             $fakeGitPath = Join-Path $fakeGitDirectory 'git'
             $fakeGitScript = @'
 #!/bin/sh
+mode=
+if [ -f .fake-git-mode ]; then
+  IFS= read -r mode < .fake-git-mode
+fi
 case "$*" in
   *"rev-parse --show-toplevel"*)
-    printf '%s\n' "$HANDOFF_FAKE_GIT_ROOT"
+    printf '%s\n' "$PWD"
     ;;
   *"ls-files -z --stage --debug"*)
-    case "$HANDOFF_FAKE_GIT_MODE" in
+    case "$mode" in
       header)
         printf 'bad-header\tfile.md\0  ctime: 0:0\n  mtime: 0:0\n  dev: 0\tino: 0\n  uid: 0\tgid: 0\n  size: 0\tflags: 0\n'
         ;;
@@ -2521,7 +2886,7 @@ case "$*" in
     esac
     ;;
   *"ls-files -z --stage"*)
-    case "$HANDOFF_FAKE_GIT_MODE" in
+    case "$mode" in
       nul)
         printf '100644 1111111111111111111111111111111111111111 0\tfile.md'
         ;;
@@ -2554,7 +2919,7 @@ esac
             } else {
                 $fakePath = $fakeGitDirectory +
                     [IO.Path]::PathSeparator +
-                    $env:PATH
+                    $scannerDefaultPath
                 foreach ($malformedCase in @(
                     @{
                         Mode = 'nul'
@@ -2569,12 +2934,15 @@ esac
                         Reason = 'git-index-path'
                     }
                 )) {
+                    [IO.File]::WriteAllText(
+                        (Join-Path $fakeGitRoot '.fake-git-mode'),
+                        $malformedCase.Mode,
+                        [Text.UTF8Encoding]::new($false)
+                    )
                     $malformedResult = Invoke-Scanner `
                         -ScanPath $fakeGitRoot `
                         -InheritedEnvironment @{
                             PATH = $fakePath
-                            HANDOFF_FAKE_GIT_ROOT = $fakeGitRoot
-                            HANDOFF_FAKE_GIT_MODE = $malformedCase.Mode
                         }
                     if ($malformedResult.ExitCode -ne 2 -or
                         $malformedResult.Output -notmatch

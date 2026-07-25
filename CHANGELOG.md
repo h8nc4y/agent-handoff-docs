@@ -8,6 +8,37 @@ The format loosely follows Keep a Changelog conventions.
 
 ### Fixed
 
+- Pin `actions/checkout` v5.1.0 to its verified full commit SHA and make OSS
+  readiness reject every active external workflow `uses:` entry that is not a
+  canonical owner/repository reference pinned to a lowercase 40-character
+  commit SHA. Add positive and negative policy regressions so one valid pin
+  cannot mask a mutable tag, branch, expression, abbreviated SHA, Docker
+  reference, explicit/escaped mapping, or YAML anchor/alias (including
+  flow-style folded forms).
+- Rebuild bounded child environments from an empty map instead of subtracting
+  known names from `ProcessStartInfo`'s ambient clone. Retain only trusted
+  OS/runtime paths, isolated home/temp/config paths, fixed locale values, and
+  explicit Git controls; the test-only scanner entrypoint bridge permits only
+  explicit Git/test inputs. Add Windows/POSIX positive and negative fixtures
+  for required runtime values and forbidden credential, loader, agent, cloud,
+  custom, and hostile PATH values.
+- Run Windows PowerShell 5.1 validation in its own fresh Windows job instead
+  of after the full PowerShell 7 suite. The hosted PowerShell 5.1 job performs
+  readiness by explicitly launching `powershell.exe` from the hosted `pwsh`
+  runner shell, then checks whitespace, all within 25 minutes. The full
+  self-test and repository scan remain measured local PS5 gates and run in
+  hosted CI under PowerShell 7 on Windows and Ubuntu. Checked Git fixtures now
+  fail at the first broken setup
+  prerequisite instead of masking it with a later missing-index exception,
+  or a later "not a git repository" exception. All primary and secondary
+  scanner/index/worktree fixture setup uses a finite 60-second budget on the
+  loaded PowerShell 5.1 runner; raw transport probes retain their independent
+  deadlines.
+  Scope readiness assertions and regressions to that exact job block so the
+  main matrix cannot mask a missing PS5.1 step or timeout. Require the complete
+  built-in validation workflow to match its reviewed canonical source so an
+  extra YAML field, job, step, or scalar wrapper cannot spoof the scoped
+  checks.
 - Preserve git's forward-slash tracked paths when resolving files so
   nested files remain in the private-marker scan on Windows and POSIX.
   The previous Windows-only backslash conversion made tracked nested files
@@ -26,9 +57,10 @@ The format loosely follows Keep a Changelog conventions.
 - Run synthetic Git fixtures in a hermetic environment and verify that
   ambient repository redirects, hooks, filters, templates, attributes,
   traces, and user configuration cannot affect the test or escape its
-  temp tree. The harness sanitizes child-only environment clones, keeps
-  the parent environment unchanged, runs the current PowerShell engine,
-  and bounds every scanner/Git child with process-tree cleanup.
+  temp tree. The harness builds child-only environments from an empty
+  allowlist, keeps the parent environment unchanged, runs the current
+  PowerShell engine, and bounds every scanner/Git child with process-tree
+  cleanup.
 - Scan the exact index blob and the current regular worktree snapshot,
   read intent-to-add directly from extended index flags, and recheck raw
   stage/debug metadata after content matching. Fail closed on conflicts,
