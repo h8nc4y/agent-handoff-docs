@@ -25,7 +25,7 @@ The format loosely follows Keep a Changelog conventions.
 - Run Windows PowerShell 5.1 validation in its own fresh Windows job instead
   of after the full PowerShell 7 suite. Keep the PowerShell 7 matrix at
   25 minutes and give the measured slower PowerShell 5.1 job an independent
-  40-minute bound. Checked Git fixtures now fail at the first broken setup
+  60-minute bound. Checked Git fixtures now fail at the first broken setup
   prerequisite instead of masking it with a later missing-index exception,
   or a later "not a git repository" exception. All primary and secondary
   scanner/index/worktree fixture setup uses a finite 60-second budget on the

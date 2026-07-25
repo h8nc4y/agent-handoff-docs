@@ -66,10 +66,12 @@ evidence, the pull request is merged, and the default branch is clean.
   setup error. Fresh-job run `30141534665` then measured a checked fixture Git
   operation exceeding 20 seconds under runner load. Checked setup Git now has
   a finite 60-second budget and the independent PS5.1 job has a measured
-  40-minute bound. Run `30142585670` then proved the three original primary
+  60-minute bound. Run `30142585670` then proved the three original primary
   fixture setup calls still accumulated a failed init before a later
   "not a git repository" exception; those calls now use the same fail-fast
-  checked setup contract. The final PR-head result is authoritative.
+  checked setup contract. Run `30143522076` passed both PS7 jobs and reported
+  no PS5.1 fixture failure before its 40-minute cap canceled the still-running
+  self-test. The final PR-head result is authoritative.
 - Past runs belong to Git history and pull-request checks.
 
 ## Known issues
