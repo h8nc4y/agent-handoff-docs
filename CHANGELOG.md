@@ -27,7 +27,10 @@ The format loosely follows Keep a Changelog conventions.
   25 minutes and give the measured slower PowerShell 5.1 job an independent
   40-minute bound. Checked Git fixtures now fail at the first broken setup
   prerequisite instead of masking it with a later missing-index exception,
-  and use a finite 60-second setup budget on the loaded PowerShell 5.1 runner.
+  or a later "not a git repository" exception. All primary and secondary
+  scanner/index/worktree fixture setup uses a finite 60-second budget on the
+  loaded PowerShell 5.1 runner; raw transport probes retain their independent
+  deadlines.
   Scope readiness assertions and regressions to that exact job block so the
   main matrix cannot mask a missing PS5.1 step or timeout. Require the complete
   built-in validation workflow to match its reviewed canonical source so an

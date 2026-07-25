@@ -1984,18 +1984,10 @@ cat
             return $fixtureRoot
         }
 
-        $gitInitResult = Invoke-IsolatedGit `
-            -GitPath $gitCommand.Source `
-            -WorkingDirectory $gitRoot `
-            -IsolationRoot $gitIsolationRoot `
-            -Arguments @('init', '--quiet') `
-            -InheritedEnvironment $adversarialEnvironment
-        if ($gitInitResult.ExitCode -ne 0 -or
-            $gitInitResult.TimedOut -or
-            -not $gitInitResult.TreeStopped -or
-            -not $gitInitResult.StreamsDrained) {
-            Add-Failure "Expected isolated git init to exit 0. Output: $($gitInitResult.Output.Trim())"
-        }
+        # The primary fixture has the same setup contract as every later Git
+        # fixture. Fail here if init did not create a repository; otherwise a
+        # later add can misreport the setup failure as "not a git repository."
+        $gitRoot = New-CheckedGitFixture -Name 'git-tracked'
         Assert-ProcessEnvironmentUnchanged `
             -Expected $beforeFixtureEnvironment `
             -Context 'Isolated git init'
@@ -2003,21 +1995,18 @@ cat
         # Preserve a valid clean alternate index. A later public-entrypoint
         # regression passes only GIT_INDEX_FILE; if the scanner trusts ambient
         # Git state, the real staged markers disappear and the test false-passes.
-        $emptyIndexResult = Invoke-IsolatedGit `
-            -GitPath $gitCommand.Source `
-            -WorkingDirectory $gitRoot `
-            -IsolationRoot $gitIsolationRoot `
+        [void](Invoke-CheckedFixtureGit `
+            -FixtureRoot $gitRoot `
             -Arguments @('read-tree', '--empty') `
-            -InheritedEnvironment $adversarialEnvironment
-        if ($emptyIndexResult.ExitCode -ne 0 -or
-            -not (Test-BoundedResultHealthy -Result $emptyIndexResult)) {
-            Add-Failure "Expected isolated empty index creation to exit 0. Output: $($emptyIndexResult.Output.Trim())"
-        } else {
-            Copy-Item `
-                -LiteralPath (Join-Path $gitRoot '.git/index') `
-                -Destination $ambientIndexFile `
-                -Force
+            -Context 'Create primary fixture empty index')
+        $primaryIndexPath = Join-Path $gitRoot '.git/index'
+        if (-not [IO.File]::Exists($primaryIndexPath)) {
+            throw 'Create primary fixture empty index returned success without creating .git/index.'
         }
+        Copy-Item `
+            -LiteralPath $primaryIndexPath `
+            -Destination $ambientIndexFile `
+            -Force
 
         $nestedDirectory = Join-Path $gitRoot (Join-Path 'sub' 'deep')
         New-Item -ItemType Directory -Path $nestedDirectory -Force | Out-Null
@@ -2043,18 +2032,10 @@ cat
                 -Encoding UTF8
         }
 
-        $gitAddResult = Invoke-IsolatedGit `
-            -GitPath $gitCommand.Source `
-            -WorkingDirectory $gitRoot `
-            -IsolationRoot $gitIsolationRoot `
+        [void](Invoke-CheckedFixtureGit `
+            -FixtureRoot $gitRoot `
             -Arguments @('add', '-A') `
-            -InheritedEnvironment $adversarialEnvironment
-        if ($gitAddResult.ExitCode -ne 0 -or
-            $gitAddResult.TimedOut -or
-            -not $gitAddResult.TreeStopped -or
-            -not $gitAddResult.StreamsDrained) {
-            Add-Failure "Expected isolated git add to exit 0. Output: $($gitAddResult.Output.Trim())"
-        }
+            -Context 'Stage primary marker fixture')
         Assert-ProcessEnvironmentUnchanged `
             -Expected $beforeFixtureEnvironment `
             -Context 'Isolated git add'

@@ -45,8 +45,9 @@ evidence, the pull request is merged, and the default branch is clean.
 
 - PS5, PS7, and Linux-equivalent readiness validation passes.
 - PS5, PS7, and Linux-equivalent private-marker self-tests pass. The final
-  fresh-process PS5 run completed in 189.7 seconds after the fixture
-  prerequisite guards and checked-setup budget were added.
+  fresh-process PS5 run completed in 199.1 seconds after the primary scanner
+  fixture and later index/worktree fixture setup were moved behind the checked
+  fail-fast contract. Raw transport probes retain their independent deadlines.
 - PS5, PS7, and Linux-equivalent repository private-marker scans pass.
 - Independent adversarial review found no remaining P1/P2/P3 issue after the
   YAML-shape, canonical-job, sentinel-fixture, and finite Windows launch-budget
@@ -65,7 +66,10 @@ evidence, the pull request is merged, and the default branch is clean.
   setup error. Fresh-job run `30141534665` then measured a checked fixture Git
   operation exceeding 20 seconds under runner load. Checked setup Git now has
   a finite 60-second budget and the independent PS5.1 job has a measured
-  40-minute bound. The final PR-head result is authoritative.
+  40-minute bound. Run `30142585670` then proved the three original primary
+  fixture setup calls still accumulated a failed init before a later
+  "not a git repository" exception; those calls now use the same fail-fast
+  checked setup contract. The final PR-head result is authoritative.
 - Past runs belong to Git history and pull-request checks.
 
 ## Known issues
