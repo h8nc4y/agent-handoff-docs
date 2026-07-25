@@ -340,14 +340,14 @@ The GitHub Actions workflow runs readiness validation, the full scan self-test,
 the private-marker scan, and a committed-tree whitespace check under
 PowerShell 7 on Windows and Ubuntu for pull requests and pushes to `main`.
 An independent bounded Windows PowerShell 5.1 compatibility job runs
-readiness and the repository scan by explicitly launching `powershell.exe`
-from the hosted `pwsh` runner shell, followed by the whitespace check. The full
-Windows PowerShell 5.1 self-test remains a measured local gate because GitHub's
+readiness by explicitly launching `powershell.exe` from the hosted `pwsh`
+runner shell, followed by the whitespace check. The full Windows PowerShell
+5.1 self-test and repository scan remain measured local gates because GitHub's
 direct hosted `powershell` step made nested bounded children repeatedly hit
-their deadlines and made the standalone scanner fail its Git integrity probe,
-while the same suite passes locally and under PowerShell 7 on the Windows
-runner. Every CI job has a 25-minute timeout. The readiness validator scans
-every
+their deadlines, while both direct and explicit-child PS5 paths made the
+standalone scanner fail its Git integrity probe. The actual hosted repository
+scan and full self-test remain required under PowerShell 7 on Windows and
+Ubuntu. Every CI job has a 25-minute timeout. The readiness validator scans every
 active external `uses:` entry under `.github/workflows/` and fails closed
 unless it is pinned to a full lowercase 40-character commit SHA; repository-
 local `./` actions remain allowed. To keep the Windows PowerShell 5.1 policy

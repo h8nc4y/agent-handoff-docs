@@ -74,14 +74,14 @@ evidence, the pull request is merged, and the default branch is clean.
   self-test. Run `30144735948` showed that the hosted direct PowerShell 5.1
   step makes nearly every nested bounded child reach its deadline, despite the
   same full suite passing locally and in hosted Windows PowerShell 7. After
-  bounded 25-, 40-, and 60-minute attempts, hosted PS5 now owns readiness,
-  repository-scan, and whitespace compatibility smoke only; the full PS5
-  self-test remains the measured local gate. Run `30146459209` then proved
-  that even the standalone scanner fails closed at `git-top-level-process`
-  under the direct hosted PS5 shell. The smoke job now launches
-  `powershell.exe` explicitly from the proven hosted `pwsh` runner shell while
-  retaining real PS5 readiness and repository scanning. The final PR-head
-  result is authoritative.
+  bounded 25-, 40-, and 60-minute attempts, hosted PS5 now owns readiness and
+  whitespace compatibility smoke only; the full PS5 self-test and repository
+  scan remain measured local gates. Run `30146459209` proved that the
+  standalone scanner fails closed at `git-top-level-process` under the direct
+  hosted PS5 shell. Run `30146897376` reproduced the same fail-closed result
+  after readiness passed through an explicit `pwsh` to `powershell.exe` path.
+  The actual hosted repository scan and full self-test remain required under
+  PowerShell 7 on Windows and Ubuntu. The final PR-head result is authoritative.
 - Past runs belong to Git history and pull-request checks.
 
 ## Known issues

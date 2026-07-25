@@ -65,7 +65,7 @@ Prevent two ambient supply-chain paths from influencing repository validation:
 | The built-in workflow cannot hide or redirect required checks | exact canonical-source comparison and mutation regression | locally verified on PS5, PS7, and Linux-equivalent container; Windows/Ubuntu PR CI required |
 | Ambient credential, loader, agent, and custom variables are absent in bounded children | cross-platform environment probe | locally verified on PS5, PS7, and Linux-equivalent container; Windows/Ubuntu PR CI required |
 | Required OS/runtime, isolation, PATH, locale, and Git controls remain usable | cross-platform positive environment probe and full scanner self-test | locally verified on PS5, PS7, and Linux-equivalent container; Windows/Ubuntu PR CI required |
-| Windows PowerShell 5.1 and PowerShell 7 behavior remains compatible | local full PS5/PS7 validation, hosted PS5 readiness/scan smoke, and hosted PS7 full self-test | locally verified; Windows PR CI required |
+| Windows PowerShell 5.1 and PowerShell 7 behavior remains compatible | local full PS5 validation and repository scan, hosted PS5 readiness/whitespace smoke, and hosted Windows/Ubuntu PS7 full self-test plus repository scan | locally verified; Windows/Ubuntu PR CI required |
 | POSIX behavior remains compatible | Linux-equivalent local run and Ubuntu CI | locally verified; Ubuntu PR CI required |
 | Repository security scan and whitespace checks pass | private-marker scan, Semgrep, Gitleaks, and `git diff --check` | locally verified; Windows/Ubuntu PR CI required |
 
