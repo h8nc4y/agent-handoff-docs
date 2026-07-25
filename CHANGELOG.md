@@ -8,6 +8,20 @@ The format loosely follows Keep a Changelog conventions.
 
 ### Fixed
 
+- Pin `actions/checkout` v5.1.0 to its verified full commit SHA and make OSS
+  readiness reject every active external workflow `uses:` entry that is not a
+  canonical owner/repository reference pinned to a lowercase 40-character
+  commit SHA. Add positive and negative policy regressions so one valid pin
+  cannot mask a mutable tag, branch, expression, abbreviated SHA, Docker
+  reference, explicit/escaped mapping, or YAML anchor/alias (including
+  flow-style folded forms).
+- Rebuild bounded child environments from an empty map instead of subtracting
+  known names from `ProcessStartInfo`'s ambient clone. Retain only trusted
+  OS/runtime paths, isolated home/temp/config paths, fixed locale values, and
+  explicit Git controls; the test-only scanner entrypoint bridge permits only
+  explicit Git/test inputs. Add Windows/POSIX positive and negative fixtures
+  for required runtime values and forbidden credential, loader, agent, cloud,
+  custom, and hostile PATH values.
 - Preserve git's forward-slash tracked paths when resolving files so
   nested files remain in the private-marker scan on Windows and POSIX.
   The previous Windows-only backslash conversion made tracked nested files
@@ -26,9 +40,10 @@ The format loosely follows Keep a Changelog conventions.
 - Run synthetic Git fixtures in a hermetic environment and verify that
   ambient repository redirects, hooks, filters, templates, attributes,
   traces, and user configuration cannot affect the test or escape its
-  temp tree. The harness sanitizes child-only environment clones, keeps
-  the parent environment unchanged, runs the current PowerShell engine,
-  and bounds every scanner/Git child with process-tree cleanup.
+  temp tree. The harness builds child-only environments from an empty
+  allowlist, keeps the parent environment unchanged, runs the current
+  PowerShell engine, and bounds every scanner/Git child with process-tree
+  cleanup.
 - Scan the exact index blob and the current regular worktree snapshot,
   read intent-to-add directly from extended index flags, and recheck raw
   stage/debug metadata after content matching. Fail closed on conflicts,

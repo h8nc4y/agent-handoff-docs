@@ -559,6 +559,180 @@ function Stop-PrivateMarkerProcessTreeBounded {
     return $Process.HasExited
 }
 
+function New-PrivateMarkerChildEnvironment {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$IsolationRoot,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ExecutablePath,
+
+        [hashtable]$RequestedEnvironment = @{},
+
+        [switch]$PassThroughGitEnvironment,
+
+        [string]$OwnedWindowsJobMarkerName =
+            'AGENT_HANDOFF_DOCS_OWNED_WINDOWS_JOB'
+    )
+
+    # Build from an empty map so a future credential, loader, tracing, agent,
+    # cloud, or runtime variable cannot cross this boundary merely because
+    # ProcessStartInfo cloned the parent process environment.
+    if (-not [IO.Path]::IsPathRooted($ExecutablePath) -or
+        -not (Test-Path -LiteralPath $ExecutablePath -PathType Leaf)) {
+        throw 'Bounded child executable must be an existing absolute file.'
+    }
+    $environment = @{}
+    $resolvedExecutablePath = [IO.Path]::GetFullPath($ExecutablePath)
+    $executableDirectory = Split-Path -Parent $resolvedExecutablePath
+
+    $homeDirectory = Join-Path $IsolationRoot 'home'
+    $xdgDirectory = Join-Path $IsolationRoot 'xdg'
+    $temporaryDirectory = Join-Path $IsolationRoot 'tmp'
+    $templateDirectory = Join-Path $IsolationRoot 'empty-template'
+    $hooksDirectory = Join-Path $IsolationRoot 'empty-hooks'
+    foreach ($directory in @(
+        $homeDirectory,
+        $xdgDirectory,
+        $temporaryDirectory,
+        $templateDirectory,
+        $hooksDirectory
+    )) {
+        New-Item -ItemType Directory -Path $directory -Force | Out-Null
+    }
+
+    # Derive loader/runtime necessities only from the runtime and the
+    # isolation root. PATH contains the requested executable's own directory
+    # plus fixed OS command directories, never the ambient search path.
+    $safePathEntries = New-Object System.Collections.Generic.List[string]
+    $safePathEntries.Add($executableDirectory) | Out-Null
+    if ($script:privateMarkerIsWindows) {
+        $systemDirectory = [Environment]::SystemDirectory
+        if ([string]::IsNullOrWhiteSpace($systemDirectory) -or
+            -not [IO.Path]::IsPathRooted($systemDirectory) -or
+            -not (Test-Path -LiteralPath $systemDirectory -PathType Container)) {
+            throw 'Trusted Windows system directory could not be resolved.'
+        }
+        $windowsDirectory = [IO.Directory]::GetParent(
+            $systemDirectory
+        ).FullName
+        $safePathEntries.Add($systemDirectory) | Out-Null
+        $environment['SystemRoot'] = $windowsDirectory
+        $environment['WINDIR'] = $windowsDirectory
+        $environment['ComSpec'] = Join-Path $systemDirectory 'cmd.exe'
+        $environment['PATHEXT'] = '.COM;.EXE;.BAT;.CMD'
+        $environment[$OwnedWindowsJobMarkerName] = '1'
+    }
+    else {
+        foreach ($systemPath in @('/usr/bin', '/bin')) {
+            if (Test-Path -LiteralPath $systemPath -PathType Container) {
+                $safePathEntries.Add($systemPath) | Out-Null
+            }
+        }
+        $environment['TMPDIR'] = $temporaryDirectory
+    }
+    $environment['PATH'] = @(
+        $safePathEntries | Select-Object -Unique
+    ) -join [IO.Path]::PathSeparator
+    $environment['TEMP'] = $temporaryDirectory
+    $environment['TMP'] = $temporaryDirectory
+    $environment['HOME'] = $homeDirectory
+    $environment['USERPROFILE'] = $homeDirectory
+    $environment['XDG_CONFIG_HOME'] = $xdgDirectory
+    $environment['LC_ALL'] = 'C'
+    $environment['LANG'] = 'C'
+
+    # The public scanner-entrypoint test must receive deliberately hostile Git
+    # controls so the scanner can prove it strips them before invoking Git.
+    # Limit this explicit test-only bridge to GIT_*, PATH, and the scanner's
+    # documented local-marker input; unrelated requested values remain outside
+    # the child environment.
+    if ($PassThroughGitEnvironment) {
+        foreach ($nameObject in $RequestedEnvironment.Keys) {
+            $name = [string]$nameObject
+            if ($name.StartsWith(
+                'GIT_',
+                [StringComparison]::OrdinalIgnoreCase
+            ) -or [string]::Equals(
+                $name,
+                'PATH',
+                [StringComparison]::OrdinalIgnoreCase
+            ) -or [string]::Equals(
+                $name,
+                'AGENT_HANDOFF_DOCS_PRIVATE_MARKERS',
+                [StringComparison]::OrdinalIgnoreCase
+            )) {
+                $environment[$name] =
+                    [string]$RequestedEnvironment[$nameObject]
+            }
+        }
+        return $environment
+    }
+
+    $emptyGlobalConfig = Join-Path $IsolationRoot 'empty-global.gitconfig'
+    $emptySystemConfig = Join-Path $IsolationRoot 'empty-system.gitconfig'
+    $emptyAttributes = Join-Path $IsolationRoot 'empty-attributes'
+    $emptyExcludes = Join-Path $IsolationRoot 'empty-excludes'
+    foreach ($emptyFile in @(
+        $emptyGlobalConfig,
+        $emptySystemConfig,
+        $emptyAttributes,
+        $emptyExcludes
+    )) {
+        if (-not (Test-Path -LiteralPath $emptyFile -PathType Leaf)) {
+            [IO.File]::WriteAllText(
+                $emptyFile,
+                '',
+                [Text.UTF8Encoding]::new($false)
+            )
+        }
+    }
+
+    # Reconstruct Git's control surface from fixed local-only values. Caller
+    # overrides are intentionally ignored on this production path.
+    $environment['GIT_CONFIG_NOSYSTEM'] = '1'
+    $environment['GIT_ATTR_NOSYSTEM'] = '1'
+    $environment['GIT_CONFIG_GLOBAL'] =
+        $emptyGlobalConfig.Replace([string][char]92, '/')
+    $environment['GIT_CONFIG_SYSTEM'] =
+        $emptySystemConfig.Replace([string][char]92, '/')
+    $environment['GIT_TERMINAL_PROMPT'] = '0'
+    $environment['GIT_LFS_SKIP_SMUDGE'] = '1'
+    $environment['GIT_OPTIONAL_LOCKS'] = '0'
+    $environment['GIT_NO_REPLACE_OBJECTS'] = '1'
+    $environment['GIT_NO_LAZY_FETCH'] = '1'
+
+    $safeConfig = @(
+        [pscustomobject]@{
+            Key = 'core.hooksPath'
+            Value = $hooksDirectory.Replace([string][char]92, '/')
+        },
+        [pscustomobject]@{
+            Key = 'core.attributesFile'
+            Value = $emptyAttributes.Replace([string][char]92, '/')
+        },
+        [pscustomobject]@{
+            Key = 'core.excludesFile'
+            Value = $emptyExcludes.Replace([string][char]92, '/')
+        },
+        [pscustomobject]@{ Key = 'core.fsmonitor'; Value = 'false' },
+        [pscustomobject]@{ Key = 'protocol.allow'; Value = 'never' },
+        [pscustomobject]@{ Key = 'submodule.recurse'; Value = 'false' },
+        [pscustomobject]@{
+            Key = 'init.templateDir'
+            Value = $templateDirectory.Replace([string][char]92, '/')
+        }
+    )
+    $environment['GIT_CONFIG_COUNT'] = [string]$safeConfig.Count
+    for ($index = 0; $index -lt $safeConfig.Count; $index++) {
+        $environment["GIT_CONFIG_KEY_$index"] =
+            $safeConfig[$index].Key
+        $environment["GIT_CONFIG_VALUE_$index"] =
+            $safeConfig[$index].Value
+    }
+    return $environment
+}
+
 function Invoke-PrivateMarkerBoundedProcess {
     param(
         [Parameter(Mandatory = $true)]
@@ -824,99 +998,20 @@ catch {
         ) -join ' '
     }
 
-    # ProcessStartInfo begins with a child-only environment clone. Apply the
-    # test overrides to that clone; never mutate the parent process.
+    # ProcessStartInfo begins with a clone of the ambient environment. Clear it
+    # completely and copy only the fixed allowlist assembled above; never
+    # mutate the parent process.
+    $allowedChildEnvironment = New-PrivateMarkerChildEnvironment `
+        -IsolationRoot $IsolationRoot `
+        -ExecutablePath $FileName `
+        -RequestedEnvironment $InheritedEnvironment `
+        -PassThroughGitEnvironment:$PassThroughGitEnvironment `
+        -OwnedWindowsJobMarkerName $ownedJobMarkerName
     $childEnvironment = $startInfo.EnvironmentVariables
-    foreach ($name in $InheritedEnvironment.Keys) {
-        $childEnvironment["$name"] = [string]$InheritedEnvironment[$name]
-    }
-    $childEnvironment.Remove($ownedJobMarkerName)
-    if ($script:privateMarkerIsWindows) {
-        $childEnvironment[$ownedJobMarkerName] = '1'
-    }
-
-    if (-not $PassThroughGitEnvironment) {
-        $homeDirectory = Join-Path $IsolationRoot 'home'
-        $xdgDirectory = Join-Path $IsolationRoot 'xdg'
-        $templateDirectory = Join-Path $IsolationRoot 'empty-template'
-        $hooksDirectory = Join-Path $IsolationRoot 'empty-hooks'
-        foreach ($directory in @(
-            $homeDirectory,
-            $xdgDirectory,
-            $templateDirectory,
-            $hooksDirectory
-        )) {
-            New-Item -ItemType Directory -Path $directory -Force | Out-Null
-        }
-
-        $emptyGlobalConfig = Join-Path $IsolationRoot 'empty-global.gitconfig'
-        $emptySystemConfig = Join-Path $IsolationRoot 'empty-system.gitconfig'
-        $emptyAttributes = Join-Path $IsolationRoot 'empty-attributes'
-        $emptyExcludes = Join-Path $IsolationRoot 'empty-excludes'
-        foreach ($emptyFile in @(
-            $emptyGlobalConfig,
-            $emptySystemConfig,
-            $emptyAttributes,
-            $emptyExcludes
-        )) {
-            if (-not (Test-Path -LiteralPath $emptyFile -PathType Leaf)) {
-                [System.IO.File]::WriteAllText(
-                    $emptyFile,
-                    '',
-                    [System.Text.UTF8Encoding]::new($false)
-                )
-            }
-        }
-
-        # Strip every Git control surface, including repo/index/object/trace
-        # redirects, then add only the bounded configuration required here.
-        foreach ($name in @($childEnvironment.Keys | ForEach-Object { "$_" })) {
-            if ($name -like 'GIT_*') {
-                $childEnvironment.Remove($name)
-            }
-        }
-        foreach ($name in @('HOME', 'USERPROFILE', 'XDG_CONFIG_HOME')) {
-            $childEnvironment.Remove($name)
-        }
-        $childEnvironment['HOME'] = $homeDirectory
-        $childEnvironment['USERPROFILE'] = $homeDirectory
-        $childEnvironment['XDG_CONFIG_HOME'] = $xdgDirectory
-        $childEnvironment['GIT_CONFIG_NOSYSTEM'] = '1'
-        $childEnvironment['GIT_ATTR_NOSYSTEM'] = '1'
-        $childEnvironment['GIT_CONFIG_GLOBAL'] = $emptyGlobalConfig.Replace([string][char]92, '/')
-        $childEnvironment['GIT_CONFIG_SYSTEM'] = $emptySystemConfig.Replace([string][char]92, '/')
-        $childEnvironment['GIT_TERMINAL_PROMPT'] = '0'
-        $childEnvironment['GIT_LFS_SKIP_SMUDGE'] = '1'
-        $childEnvironment['GIT_OPTIONAL_LOCKS'] = '0'
-        $childEnvironment['GIT_NO_REPLACE_OBJECTS'] = '1'
-        $childEnvironment['GIT_NO_LAZY_FETCH'] = '1'
-
-        $safeConfig = @(
-            [pscustomobject]@{
-                Key = 'core.hooksPath'
-                Value = $hooksDirectory.Replace([string][char]92, '/')
-            },
-            [pscustomobject]@{
-                Key = 'core.attributesFile'
-                Value = $emptyAttributes.Replace([string][char]92, '/')
-            },
-            [pscustomobject]@{
-                Key = 'core.excludesFile'
-                Value = $emptyExcludes.Replace([string][char]92, '/')
-            },
-            [pscustomobject]@{ Key = 'core.fsmonitor'; Value = 'false' },
-            [pscustomobject]@{ Key = 'protocol.allow'; Value = 'never' },
-            [pscustomobject]@{ Key = 'submodule.recurse'; Value = 'false' },
-            [pscustomobject]@{
-                Key = 'init.templateDir'
-                Value = $templateDirectory.Replace([string][char]92, '/')
-            }
-        )
-        $childEnvironment['GIT_CONFIG_COUNT'] = [string]$safeConfig.Count
-        for ($index = 0; $index -lt $safeConfig.Count; $index++) {
-            $childEnvironment["GIT_CONFIG_KEY_$index"] = $safeConfig[$index].Key
-            $childEnvironment["GIT_CONFIG_VALUE_$index"] = $safeConfig[$index].Value
-        }
+    $childEnvironment.Clear()
+    foreach ($name in $allowedChildEnvironment.Keys) {
+        $childEnvironment["$name"] =
+            [string]$allowedChildEnvironment[$name]
     }
 
     $process = $null

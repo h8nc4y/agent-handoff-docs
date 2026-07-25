@@ -61,6 +61,14 @@ stdin, stdout, and stderr through fixed-size buffers with a bounded final
 drain, preserving binary Git output without PowerShell or CLIXML framing.
 Windows PowerShell 5.1 process startup uses a temporary BOM-less UTF-8
 input encoding and restores the caller's encoding before returning.
+Bounded scanner and Git children do not inherit the parent process
+environment. Their environment starts empty and receives only OS/runtime
+values derived from trusted APIs, isolation-root paths, fixed command
+directories, locale values, and explicit local-only Git controls. The
+scanner-entrypoint test bridge permits only explicit `GIT_*`, `PATH`, and
+documented local-marker inputs; representative credential, loader, agent,
+cloud, and unrelated variables are covered by negative fixtures on Windows
+and POSIX.
 The scanner checks a curated set of secret prefixes (GitHub,
 OpenAI, AWS, GCP, Slack, Stripe, PEM key blocks, and similar),
 private-looking absolute Windows paths, non-allowlisted GitHub repository
@@ -69,6 +77,16 @@ URLs, and configured local markers, and it redacts any matched value.
 detect every possible secret format and is no substitute for keeping real
 credentials out of the repository in the first place. Treat a passing
 scan as "no known marker found," not "definitely safe."
+
+The validation workflow pins external GitHub Actions to full commit SHAs.
+`scripts/validate-oss-readiness.ps1` scans every active external `uses:`
+entry in every workflow file and rejects tags, branches, abbreviated SHAs,
+expressions, Docker references, and non-canonical/unparseable forms. The
+dependency-free PowerShell 5.1 policy also rejects YAML explicit keys,
+escaped/folded double-quoted scalars, and anchors/aliases because those forms
+can decode or alias into a hidden semantic `uses` key. The
+complete boundary and acceptance criteria are documented in
+[`docs/security-boundary-contract.md`](docs/security-boundary-contract.md).
 
 ## Response Expectations
 

@@ -139,7 +139,10 @@ offline) into the matching `skills/agent-handoff-docs/` folder.
 
 ```
 SKILL.md                 The skill (English, canonical)
+HANDOFF.md               Current repository work state
 docs/SKILL.ja.md         Japanese full version
+docs/security-boundary-contract.md
+                         CI and child-process security invariants
 templates/en/            English templates (placeholders only)
   START_HERE.md          Kickoff file
   REQUIREMENTS.md        Requirements with acceptance-criteria table
@@ -314,8 +317,18 @@ stderr with fixed 8 KiB buffers and a bounded final drain, preserving
 binary Git protocols without PowerShell text or CLIXML conversion. On
 Windows PowerShell 5.1, process startup temporarily selects and then
 restores a BOM-less UTF-8 input encoding so raw Git batch requests cannot
-gain a preamble. The self-test exercises this first-gate transport directly because a scanner
-fixture already inside the owned Job takes the separate reuse path.
+gain a preamble. The self-test exercises this first-gate transport directly
+because a scanner fixture already inside the owned Job takes the separate
+reuse path.
+
+Every bounded scanner/Git child environment is rebuilt from an empty map.
+Only runtime values derived from trusted OS APIs, isolation-root paths, fixed
+command directories, locale values, and explicit Git safety controls are
+added. The scanner-entrypoint fixture has a narrow explicit bridge for hostile
+`GIT_*` values, `PATH`, and the documented local-marker input; ambient
+credentials, loader variables, and unrelated overrides remain absent. The
+cross-platform self-test covers required and forbidden variables on both
+Windows and POSIX.
 
 Also run Git whitespace checks on your working changes before publishing:
 
@@ -327,7 +340,14 @@ The GitHub Actions workflow runs the same validation, scan self-test,
 private-marker scan, and a committed-tree whitespace check on both
 Windows and Ubuntu for pull requests and pushes to `main`. The Windows
 job runs the checks under both PowerShell 7 and Windows PowerShell 5.1.
-Each matrix job has a 25-minute timeout.
+Each matrix job has a 25-minute timeout. The readiness validator scans every
+active external `uses:` entry under `.github/workflows/` and fails closed
+unless it is pinned to a full lowercase 40-character commit SHA; repository-
+local `./` actions remain allowed. To keep the Windows PowerShell 5.1 policy
+dependency-free and fail-closed, workflow explicit keys, escaped/folded
+double-quoted scalars, and YAML anchors/aliases are also rejected. See the
+[security boundary contract](docs/security-boundary-contract.md) for the
+owned invariants and test plan.
 
 ## Contributing
 
