@@ -329,6 +329,408 @@ function Assert-AllWorkflowExternalUsesPinned {
     }
 }
 
+function Test-WindowsPowerShell51WorkflowJobPolicy {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Source
+    )
+
+    $violations = New-Object System.Collections.Generic.List[string]
+    $jobMatches = [regex]::Matches(
+        $Source,
+        '(?ms)^  validate-windows-powershell-5-1:\s*\r?\n' +
+            '(?<body>.*?)(?=^  (?!#)\S[^\r\n]*?:[^\r\n]*$|\z)'
+    )
+    if ($jobMatches.Count -ne 1) {
+        $violations.Add(
+            'expected exactly one validate-windows-powershell-5-1 job'
+        ) | Out-Null
+    }
+    else {
+        # Scope every assertion to the PS5.1 job body. Independent global
+        # matches can otherwise let the main pwsh matrix mask a missing
+        # checkout, timeout, or validation command in the fresh PS5.1 job.
+        $body = $jobMatches[0].Groups['body'].Value
+        $expectedBody = @'
+    name: Validate skill repository (windows-latest, PowerShell 5.1)
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Validate OSS readiness
+        shell: powershell
+        run: ./scripts/validate-oss-readiness.ps1
+
+      - name: Test private marker scan
+        shell: powershell
+        run: ./scripts/test-scan-private-markers.ps1
+
+      - name: Scan for private markers
+        shell: powershell
+        run: ./scripts/scan-private-markers.ps1
+
+      - name: Check whitespace
+        shell: powershell
+        run: git diff-tree --check 4b825dc642cb6eb9a060e54bf8d69288fbee4904 HEAD
+'@
+        $normalizedBody = ($body -replace '\r\n?', "`n").TrimEnd(
+            [char[]]@([char]10)
+        )
+        $normalizedExpectedBody =
+            ($expectedBody -replace '\r\n?', "`n").TrimEnd(
+                [char[]]@([char]10)
+            )
+        if (-not [string]::Equals(
+                $normalizedBody,
+                $normalizedExpectedBody,
+                [StringComparison]::Ordinal
+            )) {
+            $violations.Add(
+                'PS5.1 job body does not match the canonical fresh-runner suite'
+            ) | Out-Null
+        }
+        $requirements = @(
+            [pscustomobject]@{
+                Name = 'windows runner'
+                Pattern = '(?m)^    runs-on:\s*windows-latest\s*$'
+            },
+            [pscustomobject]@{
+                Name = '25-minute bound'
+                Pattern = '(?m)^    timeout-minutes:\s*25\s*$'
+            },
+            [pscustomobject]@{
+                Name = 'official immutable checkout'
+                Pattern = (
+                    '(?ms)^      - name: Check out repository\s*\r?\n' +
+                    '        uses: actions/checkout@' +
+                    'fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09' +
+                    '\s+#\s+v5\.1\.0\s*$'
+                )
+            },
+            [pscustomobject]@{
+                Name = 'readiness command'
+                Pattern = (
+                    '(?ms)^      - name: Validate OSS readiness\s*\r?\n' +
+                    '        shell: powershell\s*\r?\n' +
+                    '        run: \./scripts/validate-oss-readiness\.ps1\s*$'
+                )
+            },
+            [pscustomobject]@{
+                Name = 'private-marker self-test command'
+                Pattern = (
+                    '(?ms)^      - name: Test private marker scan\s*\r?\n' +
+                    '        shell: powershell\s*\r?\n' +
+                    '        run: \./scripts/test-scan-private-markers\.ps1\s*$'
+                )
+            },
+            [pscustomobject]@{
+                Name = 'private-marker repository scan command'
+                Pattern = (
+                    '(?ms)^      - name: Scan for private markers\s*\r?\n' +
+                    '        shell: powershell\s*\r?\n' +
+                    '        run: \./scripts/scan-private-markers\.ps1\s*$'
+                )
+            },
+            [pscustomobject]@{
+                Name = 'committed-tree whitespace command'
+                Pattern = (
+                    '(?ms)^      - name: Check whitespace\s*\r?\n' +
+                    '        shell: powershell\s*\r?\n' +
+                    '        run: git diff-tree --check ' +
+                    '4b825dc642cb6eb9a060e54bf8d69288fbee4904 HEAD\s*$'
+                )
+            }
+        )
+        foreach ($requirement in $requirements) {
+            if ($body -notmatch $requirement.Pattern) {
+                $violations.Add(
+                    "missing PS5.1 job requirement: $($requirement.Name)"
+                ) | Out-Null
+            }
+        }
+    }
+
+    return [pscustomobject]@{
+        IsValid = $violations.Count -eq 0
+        Violations = @($violations | ForEach-Object { $_ })
+    }
+}
+
+function Assert-WindowsPowerShell51WorkflowJobRegressions {
+    $commit = 'fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09'
+    $valid = @"
+jobs:
+  validate-windows-powershell-5-1:
+    name: Validate skill repository (windows-latest, PowerShell 5.1)
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@$commit # v5.1.0
+
+      - name: Validate OSS readiness
+        shell: powershell
+        run: ./scripts/validate-oss-readiness.ps1
+
+      - name: Test private marker scan
+        shell: powershell
+        run: ./scripts/test-scan-private-markers.ps1
+
+      - name: Scan for private markers
+        shell: powershell
+        run: ./scripts/scan-private-markers.ps1
+
+      - name: Check whitespace
+        shell: powershell
+        run: git diff-tree --check 4b825dc642cb6eb9a060e54bf8d69288fbee4904 HEAD
+"@
+    $dummy = @"
+jobs:
+  validate:
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@$commit # v5.1.0
+      - name: Validate OSS readiness
+        shell: powershell
+        run: ./scripts/validate-oss-readiness.ps1
+      - name: Test private marker scan
+        shell: powershell
+        run: ./scripts/test-scan-private-markers.ps1
+      - name: Scan for private markers
+        shell: powershell
+        run: ./scripts/scan-private-markers.ps1
+  validate-windows-powershell-5-1:
+    runs-on: windows-latest
+    steps:
+      - name: Dummy
+        shell: powershell
+        run: Write-Output dummy
+"@
+    $quotedBorrowedJob = @"
+jobs:
+  validate-windows-powershell-5-1:
+    runs-on: windows-latest
+    steps:
+      - name: Dummy
+        shell: powershell
+        run: Write-Output dummy
+  "borrowed":
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@$commit # v5.1.0
+      - name: Validate OSS readiness
+        shell: powershell
+        run: ./scripts/validate-oss-readiness.ps1
+      - name: Test private marker scan
+        shell: powershell
+        run: ./scripts/test-scan-private-markers.ps1
+      - name: Scan for private markers
+        shell: powershell
+        run: ./scripts/scan-private-markers.ps1
+      - name: Check whitespace
+        shell: powershell
+        run: git diff-tree --check 4b825dc642cb6eb9a060e54bf8d69288fbee4904 HEAD
+"@
+    $scalarSpoof = @"
+jobs:
+  validate-windows-powershell-5-1:
+    name: |2
+      - name: Check out repository
+        uses: actions/checkout@$commit # v5.1.0
+      - name: Validate OSS readiness
+        shell: powershell
+        run: ./scripts/validate-oss-readiness.ps1
+      - name: Test private marker scan
+        shell: powershell
+        run: ./scripts/test-scan-private-markers.ps1
+      - name: Scan for private markers
+        shell: powershell
+        run: ./scripts/scan-private-markers.ps1
+      - name: Check whitespace
+        shell: powershell
+        run: git diff-tree --check 4b825dc642cb6eb9a060e54bf8d69288fbee4904 HEAD
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: Dummy
+        shell: powershell
+        run: Write-Output dummy
+"@
+    foreach ($case in @(
+        [pscustomobject]@{
+            Name = 'complete-fresh-ps51-job'
+            Source = $valid
+            Expected = $true
+        },
+        [pscustomobject]@{
+            Name = 'global-matches-cannot-mask-dummy-ps51-job'
+            Source = $dummy
+            Expected = $false
+        },
+        [pscustomobject]@{
+            Name = 'quoted-next-job-cannot-lend-ps51-requirements'
+            Source = $quotedBorrowedJob
+            Expected = $false
+        },
+        [pscustomobject]@{
+            Name = 'scalar-text-cannot-spoof-ps51-steps'
+            Source = $scalarSpoof
+            Expected = $false
+        }
+    )) {
+        $result = Test-WindowsPowerShell51WorkflowJobPolicy `
+            -Source $case.Source
+        if ($result.IsValid -ne $case.Expected) {
+            Add-Failure "PS5.1 workflow job policy regression failed: $($case.Name)."
+        }
+    }
+}
+
+function Assert-WindowsPowerShell51WorkflowJob {
+    $workflowPath = Get-RepoFilePath `
+        -RelativePath '.github/workflows/validate.yml'
+    $source = Get-Content `
+        -LiteralPath $workflowPath `
+        -Raw `
+        -Encoding UTF8
+    $result = Test-WindowsPowerShell51WorkflowJobPolicy -Source $source
+    foreach ($violation in $result.Violations) {
+        Add-Failure "PS5.1 workflow job: $violation"
+    }
+}
+
+function Get-CanonicalValidationWorkflowSource {
+    # The built-in validation workflow is deliberately small and security
+    # sensitive. An exact source contract prevents a valid YAML scalar,
+    # duplicate quoted job key, conditional step, or extra field from lending
+    # misleading raw lines to the dependency-free lexical checks.
+    return @'
+name: Validate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate skill repository (${{ matrix.os }})
+    # The scanner supports Windows PowerShell paths and POSIX PowerShell paths.
+    # Exercise both contracts so a platform-specific separator regression cannot
+    # silently turn a security scan into a partial scan.
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Validate OSS readiness
+        shell: pwsh
+        run: ./scripts/validate-oss-readiness.ps1
+
+      - name: Test private marker scan
+        shell: pwsh
+        run: ./scripts/test-scan-private-markers.ps1
+
+      - name: Scan for private markers
+        shell: pwsh
+        run: ./scripts/scan-private-markers.ps1
+
+      - name: Check whitespace
+        shell: pwsh
+        # A fresh checkout has no worktree/index diff, so `git diff --check`
+        # would be vacuous here. Diff the committed tree against the empty
+        # tree (the SHA-1 empty-tree constant) so whitespace errors in
+        # committed content actually fail the job (exit 2 on findings).
+        run: git diff-tree --check 4b825dc642cb6eb9a060e54bf8d69288fbee4904 HEAD
+
+  validate-windows-powershell-5-1:
+    name: Validate skill repository (windows-latest, PowerShell 5.1)
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Validate OSS readiness
+        shell: powershell
+        run: ./scripts/validate-oss-readiness.ps1
+
+      - name: Test private marker scan
+        shell: powershell
+        run: ./scripts/test-scan-private-markers.ps1
+
+      - name: Scan for private markers
+        shell: powershell
+        run: ./scripts/scan-private-markers.ps1
+
+      - name: Check whitespace
+        shell: powershell
+        run: git diff-tree --check 4b825dc642cb6eb9a060e54bf8d69288fbee4904 HEAD
+'@
+}
+
+function Test-CanonicalValidationWorkflowSource {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Source
+    )
+
+    $expected = Get-CanonicalValidationWorkflowSource
+    $normalizedSource = ($Source -replace '\r\n?', "`n").TrimEnd(
+        [char[]]@([char]10)
+    )
+    $normalizedExpected = ($expected -replace '\r\n?', "`n").TrimEnd(
+        [char[]]@([char]10)
+    )
+    return [string]::Equals(
+        $normalizedSource,
+        $normalizedExpected,
+        [StringComparison]::Ordinal
+    )
+}
+
+function Assert-CanonicalValidationWorkflowSourceRegressions {
+    $canonical = Get-CanonicalValidationWorkflowSource
+    if (-not (Test-CanonicalValidationWorkflowSource -Source $canonical)) {
+        Add-Failure 'Canonical validation workflow rejected its own source.'
+    }
+    if (Test-CanonicalValidationWorkflowSource -Source (
+            $canonical + "`n# unexpected workflow mutation"
+        )) {
+        Add-Failure 'Canonical validation workflow accepted an extra mutation.'
+    }
+}
+
+function Assert-CanonicalValidationWorkflowSource {
+    $workflowPath = Get-RepoFilePath `
+        -RelativePath '.github/workflows/validate.yml'
+    $source = Get-Content `
+        -LiteralPath $workflowPath `
+        -Raw `
+        -Encoding UTF8
+    if (-not (Test-CanonicalValidationWorkflowSource -Source $source)) {
+        Add-Failure (
+            '.github/workflows/validate.yml does not match the reviewed ' +
+            'canonical workflow source.'
+        )
+    }
+}
+
 function Test-SkillFrontmatter {
     $skillPath = Get-RepoFilePath -RelativePath 'SKILL.md'
     if (-not (Test-Path -LiteralPath $skillPath -PathType Leaf)) {
@@ -424,11 +826,16 @@ Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'sca
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'test-scan-private-markers\.ps1' -Description 'private marker scan self-test in CI'
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'windows-latest' -Description 'Windows validation runner in CI'
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'ubuntu-latest' -Description 'Ubuntu validation runner in CI'
-Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'timeout-minutes:\s*40' -Description 'bounded CI validation job'
+Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'validate-windows-powershell-5-1:' -Description 'independent Windows PowerShell 5.1 validation job'
+Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'timeout-minutes:\s*25' -Description 'bounded CI validation job'
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern '(?m)^\s*uses:\s*actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09\s+#\s+v5\.1\.0\s*$' -Description 'official immutable checkout action revision'
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'shell:\s*powershell' -Description 'Windows PowerShell 5.1 validation in CI'
 Assert-WorkflowExternalUsesPolicyRegressions
 Assert-AllWorkflowExternalUsesPinned
+Assert-WindowsPowerShell51WorkflowJobRegressions
+Assert-WindowsPowerShell51WorkflowJob
+Assert-CanonicalValidationWorkflowSourceRegressions
+Assert-CanonicalValidationWorkflowSource
 
 # The whole framework hangs on the canonical-scope declaration, so every
 # bundled template must reserve it as a heading. English templates carry the

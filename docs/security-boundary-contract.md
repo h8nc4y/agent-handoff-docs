@@ -28,6 +28,11 @@ Prevent two ambient supply-chain paths from influencing repository validation:
   dependency, workflows using explicit mapping keys, escaped/folded
   double-quoted scalars, or YAML anchors/aliases fail closed. These constructs
   can otherwise decode or alias into a hidden semantic `uses` key.
+- The built-in `.github/workflows/validate.yml` must match its reviewed
+  canonical source exactly after line-ending normalization. Extra fields,
+  jobs, steps, scalar wrappers, and disabled or redirected checks therefore
+  fail closed. Intentional workflow changes update both representations in one
+  review.
 - A bounded child starts from an empty environment map. It receives only
   runtime values derived from trusted OS APIs, isolation-root paths, a fixed
   locale, a bounded executable search path, and the scanner's explicit Git
@@ -44,7 +49,8 @@ Prevent two ambient supply-chain paths from influencing repository validation:
 - `.github/workflows/validate.yml`: immutable Action revisions and the
   Windows/Ubuntu execution matrix.
 - `scripts/validate-oss-readiness.ps1`: repository-wide external `uses:`
-  policy plus positive and negative policy regressions.
+  policy, the built-in workflow canonical source, and positive and negative
+  policy regressions.
 - `scripts/private-marker-process.ps1`: minimum child environment builder and
   Git-specific safety controls.
 - `scripts/test-scan-private-markers.ps1`: cross-platform positive and negative
@@ -56,6 +62,7 @@ Prevent two ambient supply-chain paths from influencing repository validation:
 | --- | --- | --- |
 | Checkout uses the verified official full SHA | readiness validation and workflow review | locally verified; Windows/Ubuntu PR CI required |
 | Any mutable, aliased, escaped, or malformed external `uses:` fails closed | synthetic positive/negative readiness fixtures on Windows and Ubuntu | locally verified on PS5, PS7, and Linux-equivalent container; Windows/Ubuntu PR CI required |
+| The built-in workflow cannot hide or redirect required checks | exact canonical-source comparison and mutation regression | locally verified on PS5, PS7, and Linux-equivalent container; Windows/Ubuntu PR CI required |
 | Ambient credential, loader, agent, and custom variables are absent in bounded children | cross-platform environment probe | locally verified on PS5, PS7, and Linux-equivalent container; Windows/Ubuntu PR CI required |
 | Required OS/runtime, isolation, PATH, locale, and Git controls remain usable | cross-platform positive environment probe and full scanner self-test | locally verified on PS5, PS7, and Linux-equivalent container; Windows/Ubuntu PR CI required |
 | Windows PowerShell 5.1 and PowerShell 7 behavior remains compatible | local PS5/PS7 validation and Windows CI | locally verified; Windows PR CI required |

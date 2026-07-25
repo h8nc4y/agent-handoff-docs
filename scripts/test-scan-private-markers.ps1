@@ -1947,7 +1947,13 @@ cat
                 -InheritedEnvironment $adversarialEnvironment
             if ($result.ExitCode -ne 0 -or
                 -not (Test-BoundedResultHealthy -Result $result)) {
-                Add-Failure "$Context failed with exit $($result.ExitCode). Output: $($result.Output.Trim())"
+                # Every caller assumes the requested setup mutation completed.
+                # Stop at the first broken prerequisite so a later missing index
+                # cannot mask the actual bounded-process failure.
+                throw (
+                    "$Context failed with exit $($result.ExitCode). " +
+                    "Output: $($result.Output.Trim())"
+                )
             }
             return $result
         }
@@ -1961,6 +1967,11 @@ cat
                 -FixtureRoot $fixtureRoot `
                 -Arguments @('init', '--quiet') `
                 -Context "Initialize $Name")
+            if (-not (Test-Path `
+                    -LiteralPath (Join-Path $fixtureRoot '.git') `
+                    -PathType Container)) {
+                throw "Initialize $Name returned success without creating .git."
+            }
             return $fixtureRoot
         }
 
@@ -2197,6 +2208,9 @@ cat
             -Arguments @('add', '-A') `
             -Context 'Stage clean drift index')
         $driftIndexPath = Join-Path $driftRoot '.git/index'
+        if (-not [IO.File]::Exists($driftIndexPath)) {
+            throw 'Stage clean drift index returned success without creating .git/index.'
+        }
         $cleanIndexTemplate = Join-Path $driftRoot '.git/clean-index-template'
         $changedIndexTemplate = Join-Path `
             $driftRoot `

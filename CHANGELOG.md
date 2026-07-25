@@ -22,9 +22,15 @@ The format loosely follows Keep a Changelog conventions.
   explicit Git/test inputs. Add Windows/POSIX positive and negative fixtures
   for required runtime values and forbidden credential, loader, agent, cloud,
   custom, and hostile PATH values.
-- Keep each CI matrix job bounded at 40 minutes. A measured Windows run
-  completed the PowerShell 7 suite but reached the former 25-minute job limit
-  while the same full suite was still running under Windows PowerShell 5.1.
+- Run Windows PowerShell 5.1 validation in its own fresh Windows job instead
+  of after the full PowerShell 7 suite. Each runtime keeps an independent
+  25-minute bound, and checked Git fixtures now fail at the first broken setup
+  prerequisite instead of masking it with a later missing-index exception.
+  Scope readiness assertions and regressions to that exact job block so the
+  main matrix cannot mask a missing PS5.1 step or timeout. Require the complete
+  built-in validation workflow to match its reviewed canonical source so an
+  extra YAML field, job, step, or scalar wrapper cannot spoof the scoped
+  checks.
 - Preserve git's forward-slash tracked paths when resolving files so
   nested files remain in the private-marker scan on Windows and POSIX.
   The previous Windows-only backslash conversion made tracked nested files

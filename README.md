@@ -339,13 +339,17 @@ git diff --check
 The GitHub Actions workflow runs the same validation, scan self-test,
 private-marker scan, and a committed-tree whitespace check on both
 Windows and Ubuntu for pull requests and pushes to `main`. The Windows
-job runs the checks under both PowerShell 7 and Windows PowerShell 5.1.
-Each matrix job has a 40-minute timeout. The readiness validator scans every
+checks run under PowerShell 7 and Windows PowerShell 5.1 in independent jobs
+so each runtime starts from a fresh runner. Each runtime job has a 25-minute
+timeout. The readiness validator scans every
 active external `uses:` entry under `.github/workflows/` and fails closed
 unless it is pinned to a full lowercase 40-character commit SHA; repository-
 local `./` actions remain allowed. To keep the Windows PowerShell 5.1 policy
 dependency-free and fail-closed, workflow explicit keys, escaped/folded
-double-quoted scalars, and YAML anchors/aliases are also rejected. See the
+double-quoted scalars, and YAML anchors/aliases are also rejected. The
+built-in validation workflow must also match its reviewed canonical source
+exactly, preventing extra YAML fields, jobs, steps, or scalar wrappers from
+masking the required checks. See the
 [security boundary contract](docs/security-boundary-contract.md) for the
 owned invariants and test plan.
 
