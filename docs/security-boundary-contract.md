@@ -85,7 +85,7 @@ scan, and reported no `git-root-mismatch`.
 | Required OS/runtime, isolation, PATH, locale, and Git controls remain usable | cross-platform positive environment probe and full scanner self-test | verified on hosted Windows, Ubuntu, and macOS |
 | Windows PowerShell 5.1 and PowerShell 7 behavior remains compatible | local full PS5 validation and repository scan, hosted PS5 readiness/whitespace smoke, and hosted Windows/Ubuntu/macOS PS7 full self-test plus repository scan | verified locally and in the evidence snapshot |
 | POSIX behavior, including the native session fallback, remains compatible | full self-test on Ubuntu and macOS; the fixture forces `libc` `setsid(2)` and rejects nonzero or unconfirmed-spawn evidence | verified on hosted Ubuntu and macOS |
-| Repository security scan and whitespace checks pass | private-marker scan, Semgrep, Gitleaks, and `git diff --check` | verified locally and in the evidence snapshot |
+| Repository security scan and whitespace checks pass | private-marker scan, Semgrep, Gitleaks, and `git diff --check` | private-marker and whitespace checks verified locally and in the evidence snapshot; Semgrep and Gitleaks verified locally |
 
 ## Non-goals
 
