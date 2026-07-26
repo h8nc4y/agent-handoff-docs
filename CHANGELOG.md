@@ -8,6 +8,11 @@ The format loosely follows Keep a Changelog conventions.
 
 ### Fixed
 
+- Canonicalize the synthetic self-test temp root through every POSIX ancestor
+  link before creating Git fixtures. This keeps the scanner's strict root
+  identity check intact while aligning macOS temporary paths such as a logical
+  `/var` alias with Git's physical path. Add an ancestor-symlink regression so
+  future fixture changes cannot reintroduce `git-root-mismatch` failures.
 - Pin `actions/checkout` v5.1.0 to its verified full commit SHA and make OSS
   readiness reject every active external workflow `uses:` entry that is not a
   canonical owner/repository reference pinned to a lowercase 40-character
@@ -49,6 +54,16 @@ The format loosely follows Keep a Changelog conventions.
 
 ### Changed
 
+- Run the complete PowerShell 7 validation suite on the standard `macos-15`
+  runner as well as Windows and Ubuntu. Readiness now requires that runner in
+  the exact canonical workflow, and a targeted mutation regression rejects its
+  removal. A passing macOS run measures the self-test's forced native `libc`
+  `setsid(2)` gate without adding a dependency, cache, artifact, or release
+  step. The evidence marker now requires a zero target exit, a start
+  confirmation written by the grandchild payload itself, an observed
+  descendant-held pipe after parent exit, successful cleanup/drain, and a
+  suppressed delayed sentinel; synthetic regressions reject nonzero-command,
+  unconfirmed-start, and non-pipe-leak results.
 - Add synthetic git-tracked nested-file and dotfile regressions plus
   working-tree path and exclusion regressions, and run full repository
   validation on both Windows and Ubuntu. This makes the documented

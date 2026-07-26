@@ -11,11 +11,14 @@ this document must be corrected.
 
 ## Objective
 
-Prevent two ambient supply-chain paths from influencing repository validation:
+Prevent ambient supply-chain paths from influencing repository validation and
+keep the bounded POSIX cleanup contract portable:
 
 1. a mutable or dynamically selected external GitHub Action revision; and
 2. an unrelated parent-process environment variable reaching a scanner or Git
-   child merely because `ProcessStartInfo` cloned the parent environment.
+   child merely because `ProcessStartInfo` cloned the parent environment; and
+3. a platform-specific process-session path silently working on Linux while
+   failing on macOS, where an external `setsid` executable is commonly absent.
 
 ## Threat model and invariants
 
@@ -43,11 +46,20 @@ Prevent two ambient supply-chain paths from influencing repository validation:
   ambient variables remain absent.
 - Parent-process environment values and parent environment state are never
   copied or mutated by the bounded helper.
+- The full PowerShell 7 validation suite runs on standard Windows, Ubuntu, and
+  macOS runners. The macOS run must execute the self-test fixture that forces
+  the native `libc` `setsid(2)` gate instead of relying on an external
+  `setsid` executable.
+- A native-session evidence marker is valid only when the target command exits
+  zero, the grandchild payload confirms that it started, bounded cleanup
+  is requested because the exited parent left a descendant-held pipe, cleanup
+  stops and drains the process group, and the delayed grandchild sentinel does
+  not appear.
 
 ## Implementation ownership
 
 - `.github/workflows/validate.yml`: immutable Action revisions and the
-  Windows/Ubuntu execution matrix.
+  Windows/Ubuntu/macOS execution matrix.
 - `scripts/validate-oss-readiness.ps1`: repository-wide external `uses:`
   policy, the built-in workflow canonical source, and positive and negative
   policy regressions.
@@ -58,16 +70,22 @@ Prevent two ambient supply-chain paths from influencing repository validation:
 
 ## Acceptance criteria and test plan
 
+Evidence snapshot: pull request #4 run `30200866202` passed the hosted
+Windows, Ubuntu, macOS 15, and Windows PowerShell 5.1 jobs at commit
+`ebf18db`. The successful macOS job `89790451214` emitted the forced native
+`libc` `setsid(2)` evidence marker, completed the full self-test and repository
+scan, and reported no `git-root-mismatch`.
+
 | Criterion | Verification | Status |
 | --- | --- | --- |
-| Checkout uses the verified official full SHA | readiness validation and workflow review | locally verified; Windows/Ubuntu PR CI required |
-| Any mutable, aliased, escaped, or malformed external `uses:` fails closed | synthetic positive/negative readiness fixtures on Windows and Ubuntu | locally verified on PS5, PS7, and Linux-equivalent container; Windows/Ubuntu PR CI required |
-| The built-in workflow cannot hide or redirect required checks | exact canonical-source comparison and mutation regression | locally verified on PS5, PS7, and Linux-equivalent container; Windows/Ubuntu PR CI required |
-| Ambient credential, loader, agent, and custom variables are absent in bounded children | cross-platform environment probe | locally verified on PS5, PS7, and Linux-equivalent container; Windows/Ubuntu PR CI required |
-| Required OS/runtime, isolation, PATH, locale, and Git controls remain usable | cross-platform positive environment probe and full scanner self-test | locally verified on PS5, PS7, and Linux-equivalent container; Windows/Ubuntu PR CI required |
-| Windows PowerShell 5.1 and PowerShell 7 behavior remains compatible | local full PS5 validation and repository scan, hosted PS5 readiness/whitespace smoke, and hosted Windows/Ubuntu PS7 full self-test plus repository scan | locally verified; Windows/Ubuntu PR CI required |
-| POSIX behavior remains compatible | Linux-equivalent local run and Ubuntu CI | locally verified; Ubuntu PR CI required |
-| Repository security scan and whitespace checks pass | private-marker scan, Semgrep, Gitleaks, and `git diff --check` | locally verified; Windows/Ubuntu PR CI required |
+| Checkout uses the verified official full SHA | readiness validation and workflow review | verified locally and in the evidence snapshot |
+| Any mutable, aliased, escaped, or malformed external `uses:` fails closed | synthetic positive/negative readiness fixtures on Windows, Ubuntu, and macOS | verified on local PS5/PS7 and all hosted PS7 runners |
+| The built-in workflow cannot hide or redirect required checks | exact canonical-source comparison and mutation regression | verified on local PS5/PS7 and all hosted PS7 runners |
+| Ambient credential, loader, agent, and custom variables are absent in bounded children | cross-platform environment probe | verified on hosted Windows, Ubuntu, and macOS |
+| Required OS/runtime, isolation, PATH, locale, and Git controls remain usable | cross-platform positive environment probe and full scanner self-test | verified on hosted Windows, Ubuntu, and macOS |
+| Windows PowerShell 5.1 and PowerShell 7 behavior remains compatible | local full PS5 validation and repository scan, hosted PS5 readiness/whitespace smoke, and hosted Windows/Ubuntu/macOS PS7 full self-test plus repository scan | verified locally and in the evidence snapshot |
+| POSIX behavior, including the native session fallback, remains compatible | full self-test on Ubuntu and macOS; the fixture forces `libc` `setsid(2)` and rejects nonzero or unconfirmed-spawn evidence | verified on hosted Ubuntu and macOS |
+| Repository security scan and whitespace checks pass | private-marker scan, Semgrep, Gitleaks, and `git diff --check` | private-marker and whitespace checks verified locally and in the evidence snapshot; Semgrep and Gitleaks verified locally |
 
 ## Non-goals
 

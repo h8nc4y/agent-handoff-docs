@@ -1019,6 +1019,7 @@ catch {
     $windowsJobHandle = [IntPtr]::Zero
     $posixProcessGroupId = 0
     $ownedTreeStopRequested = $false
+    $descendantPipeCleanupRequested = $false
     $stdinTask = $null
     $stdoutTask = $null
     $stderrTask = $null
@@ -1268,6 +1269,7 @@ catch {
                 # A pipe still open after a short grace period is owned by a
                 # descendant; close the job/process group before it can outlive
                 # the bounded operation.
+                $descendantPipeCleanupRequested = $true
                 $ownedTreeStopRequested = $true
                 $treeStopped = Stop-PrivateMarkerOwnedProcessTreeBounded `
                     -Process $process `
@@ -1378,6 +1380,7 @@ catch {
         OutputLimitExceeded = $outputLimitExceeded
         TreeStopped = $treeStopped
         StreamsDrained = $streamsDrained
+        DescendantPipeCleanupRequested = $descendantPipeCleanupRequested
     }
 }
 

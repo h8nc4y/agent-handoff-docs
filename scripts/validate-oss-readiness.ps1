@@ -578,15 +578,16 @@ permissions:
 jobs:
   validate:
     name: Validate skill repository (${{ matrix.os }})
-    # The scanner supports Windows PowerShell paths and POSIX PowerShell paths.
-    # Exercise both contracts so a platform-specific separator regression cannot
-    # silently turn a security scan into a partial scan.
+    # The scanner supports Windows PowerShell and POSIX PowerShell paths. Run
+    # both Linux and macOS because macOS exercises the native libc setsid(2)
+    # fallback that commonly has no external setsid executable.
     strategy:
       fail-fast: false
       matrix:
         os:
           - windows-latest
           - ubuntu-latest
+          - macos-15
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     steps:
@@ -655,6 +656,14 @@ function Assert-CanonicalValidationWorkflowSourceRegressions {
     $canonical = Get-CanonicalValidationWorkflowSource
     if (-not (Test-CanonicalValidationWorkflowSource -Source $canonical)) {
         Add-Failure 'Canonical validation workflow rejected its own source.'
+    }
+    $withoutMacOS = $canonical -replace (
+        '(?m)^\s{10}- macos-15\r?\n'
+    ), ''
+    if (Test-CanonicalValidationWorkflowSource -Source $withoutMacOS) {
+        Add-Failure (
+            'Canonical validation workflow accepted a missing macOS runner.'
+        )
     }
     if (Test-CanonicalValidationWorkflowSource -Source (
             $canonical + "`n# unexpected workflow mutation"
@@ -773,10 +782,20 @@ Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'sca
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'test-scan-private-markers\.ps1' -Description 'private marker scan self-test in CI'
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'windows-latest' -Description 'Windows validation runner in CI'
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'ubuntu-latest' -Description 'Ubuntu validation runner in CI'
+Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'macos-15' -Description 'macOS validation runner in CI'
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'validate-windows-powershell-5-1:' -Description 'independent Windows PowerShell 5.1 validation job'
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'timeout-minutes:\s*25' -Description 'bounded CI validation jobs'
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern '(?m)^\s*uses:\s*actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09\s+#\s+v5\.1\.0\s*$' -Description 'official immutable checkout action revision'
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'powershell\.exe\s+-NoProfile\s+-NonInteractive\s+-ExecutionPolicy\s+Bypass\s+-File\s+\./scripts/validate-oss-readiness\.ps1' -Description 'explicit Windows PowerShell 5.1 readiness validation in CI'
+Assert-FileContains -RelativePath 'scripts/test-scan-private-markers.ps1' -Pattern '-ForceNativePosixSessionGate:\(-not \$runtimeIsWindows\)' -Description 'forced native POSIX session gate fixture'
+Assert-FileContains -RelativePath 'scripts/test-scan-private-markers.ps1' -Pattern 'POSIX native session gate evidence: forced libc setsid\(2\)' -Description 'native POSIX session gate CI evidence marker'
+Assert-FileContains -RelativePath 'scripts/test-scan-private-markers.ps1' -Pattern '\(-not \$runtimeIsWindows -and\s+\$detachedResult\.ExitCode -ne 0\)' -Description 'native POSIX detached-command exit validation'
+Assert-FileContains -RelativePath 'scripts/test-scan-private-markers.ps1' -Pattern '\(-not \$runtimeIsWindows -and\s+\$raceResult\.ExitCode -ne 0\)' -Description 'native POSIX immediate-race exit validation'
+Assert-FileContains -RelativePath 'scripts/test-scan-private-markers.ps1' -Pattern 'Test-NativePosixSessionEvidenceReady' -Description 'native POSIX evidence eligibility regression'
+Assert-FileContains -RelativePath 'scripts/private-marker-process.ps1' -Pattern 'DescendantPipeCleanupRequested' -Description 'descendant pipe cleanup evidence shape'
+Assert-FileContains -RelativePath 'scripts/test-scan-private-markers.ps1' -Pattern 'reject a result without descendant pipe cleanup' -Description 'non-pipe-leak evidence regression'
+Assert-FileContains -RelativePath 'scripts/test-scan-private-markers.ps1' -Pattern '\$tempRoot = Resolve-PhysicalDirectoryPath' -Description 'physical canonical fixture temp root'
+Assert-FileContains -RelativePath 'scripts/test-scan-private-markers.ps1' -Pattern 'physical temp-root alias regression' -Description 'physical temp-root alias regression'
 Assert-WorkflowExternalUsesPolicyRegressions
 Assert-AllWorkflowExternalUsesPinned
 Assert-WindowsPowerShell51WorkflowJobRegressions
