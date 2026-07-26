@@ -12,15 +12,16 @@ permissions:
 jobs:
   validate:
     name: Validate skill repository (${{ matrix.os }})
-    # The scanner supports Windows PowerShell paths and POSIX PowerShell paths.
-    # Exercise both contracts so a platform-specific separator regression cannot
-    # silently turn a security scan into a partial scan.
+    # The scanner supports Windows PowerShell and POSIX PowerShell paths. Run
+    # both Linux and macOS because macOS exercises the native libc setsid(2)
+    # fallback that commonly has no external setsid executable.
     strategy:
       fail-fast: false
       matrix:
         os:
           - windows-latest
           - ubuntu-latest
+          - macos-15
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     steps:

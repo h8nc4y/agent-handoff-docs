@@ -80,6 +80,89 @@ function Add-Failure {
     $failures.Add($Message) | Out-Null
 }
 
+function Test-NativePosixSessionEvidenceReady {
+    param(
+        [bool]$RuntimeIsWindows,
+        [Parameter(Mandatory = $true)]
+        [psobject]$Result,
+        [bool]$GrandchildPayloadStarted,
+        [bool]$DelayedSentinelObserved,
+        [bool]$NoNewFailures
+    )
+
+    # The CI marker is an evidence boundary, not a progress message. Require
+    # the target command to succeed and prove that the grandchild really
+    # existed before accepting process-group cleanup as measured.
+    return (
+        -not $RuntimeIsWindows -and
+        $NoNewFailures -and
+        $Result.ExitCode -eq 0 -and
+        -not $Result.TimedOut -and
+        $Result.TreeStopped -and
+        $Result.StreamsDrained -and
+        $Result.DescendantPipeCleanupRequested -and
+        $GrandchildPayloadStarted -and
+        -not $DelayedSentinelObserved
+    )
+}
+
+function Assert-NativePosixSessionEvidenceRegressions {
+    $successfulResult = [pscustomobject]@{
+        ExitCode = 0
+        TimedOut = $false
+        TreeStopped = $true
+        StreamsDrained = $true
+        DescendantPipeCleanupRequested = $true
+    }
+    if (-not (Test-NativePosixSessionEvidenceReady `
+            -RuntimeIsWindows $false `
+            -Result $successfulResult `
+            -GrandchildPayloadStarted $true `
+            -DelayedSentinelObserved $false `
+            -NoNewFailures $true)) {
+        Add-Failure 'Expected a complete native POSIX session result to be evidence-eligible.'
+    }
+
+    $nonzeroResult = [pscustomobject]@{
+        ExitCode = 23
+        TimedOut = $false
+        TreeStopped = $true
+        StreamsDrained = $true
+        DescendantPipeCleanupRequested = $true
+    }
+    if (Test-NativePosixSessionEvidenceReady `
+            -RuntimeIsWindows $false `
+            -Result $nonzeroResult `
+            -GrandchildPayloadStarted $true `
+            -DelayedSentinelObserved $false `
+            -NoNewFailures $true) {
+        Add-Failure 'Native POSIX evidence must reject a nonzero target command.'
+    }
+    if (Test-NativePosixSessionEvidenceReady `
+            -RuntimeIsWindows $false `
+            -Result $successfulResult `
+            -GrandchildPayloadStarted $false `
+            -DelayedSentinelObserved $false `
+            -NoNewFailures $true) {
+        Add-Failure 'Native POSIX evidence must reject an unconfirmed grandchild spawn.'
+    }
+    $noPipeLeakResult = [pscustomobject]@{
+        ExitCode = 0
+        TimedOut = $false
+        TreeStopped = $true
+        StreamsDrained = $true
+        DescendantPipeCleanupRequested = $false
+    }
+    if (Test-NativePosixSessionEvidenceReady `
+            -RuntimeIsWindows $false `
+            -Result $noPipeLeakResult `
+            -GrandchildPayloadStarted $true `
+            -DelayedSentinelObserved $false `
+            -NoNewFailures $true) {
+        Add-Failure 'Native POSIX evidence must reject a result without descendant pipe cleanup.'
+    }
+}
+
 function Get-ProcessEnvironmentSnapshot {
     $snapshot = @{}
     $environment = [Environment]::GetEnvironmentVariables('Process')
@@ -515,6 +598,7 @@ $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("agent-handoff-docs-sca
 New-Item -ItemType Directory -Path $tempRoot | Out-Null
 
 try {
+    Assert-NativePosixSessionEvidenceRegressions
     Assert-FirstBoundedInvocationValidatorRegressions
     Assert-FirstBoundedInvocationIsRawTransport
 
@@ -921,8 +1005,17 @@ Start-Sleep -Seconds 30
     # kill-on-close job/process group must remain addressable after that exit;
     # otherwise stream draining times out and the delayed sentinel survives.
     $detachedSentinel = Join-Path $tempRoot 'detached-grandchild-survived'
+    $detachedGrandchildStarted =
+        Join-Path $tempRoot 'detached-grandchild-started'
     $escapedDetachedSentinel = $detachedSentinel.Replace("'", "''")
+    $escapedDetachedGrandchildStarted =
+        $detachedGrandchildStarted.Replace("'", "''")
     $detachedGrandchildScript = @"
+[IO.File]::WriteAllText(
+    '$escapedDetachedGrandchildStarted',
+    'started',
+    [Text.UTF8Encoding]::new(`$false)
+)
 Start-Sleep -Milliseconds 1500
 [System.IO.File]::WriteAllText('$escapedDetachedSentinel', 'survived')
 [Console]::Out.Write('late-output')
@@ -947,6 +1040,7 @@ Start-Sleep -Milliseconds 1500
         $detachedArguments += @('-ExecutionPolicy', 'Bypass')
     }
     $detachedArguments += @('-EncodedCommand', $detachedParentEncoded)
+    $nativeGateFailureCountBefore = $failures.Count
     $detachedResult = Invoke-PrivateMarkerBoundedProcess `
         -FileName $currentPowerShellExecutable `
         -Arguments $detachedArguments `
@@ -957,15 +1051,36 @@ Start-Sleep -Milliseconds 1500
     if ($detachedResult.TimedOut -or
         -not $detachedResult.TreeStopped -or
         -not $detachedResult.StreamsDrained -or
-        ($runtimeIsWindows -and $detachedResult.ExitCode -ne 125)) {
+        ($runtimeIsWindows -and $detachedResult.ExitCode -ne 125) -or
+        (-not $runtimeIsWindows -and $detachedResult.ExitCode -ne 0)) {
         Add-Failure 'Expected parent-first exit cleanup to stop the pipe-owning grandchild and drain both streams.'
+    }
+    $detachedGrandchildStartedObserved =
+        Test-Path -LiteralPath $detachedGrandchildStarted -PathType Leaf
+    if (-not $detachedGrandchildStartedObserved) {
+        Add-Failure 'Expected the detached grandchild payload to confirm that it started.'
     }
     for ($attempt = 0; $attempt -lt 25 -and
         -not (Test-Path -LiteralPath $detachedSentinel); $attempt++) {
         Start-Sleep -Milliseconds 100
     }
-    if (Test-Path -LiteralPath $detachedSentinel) {
+    $detachedSentinelObserved =
+        Test-Path -LiteralPath $detachedSentinel -PathType Leaf
+    if ($detachedSentinelObserved) {
         Add-Failure 'Expected parent-first exit cleanup to kill the grandchild before its delayed sentinel write.'
+    }
+    if (Test-NativePosixSessionEvidenceReady `
+            -RuntimeIsWindows $runtimeIsWindows `
+            -Result $detachedResult `
+            -GrandchildPayloadStarted $detachedGrandchildStartedObserved `
+            -DelayedSentinelObserved $detachedSentinelObserved `
+            -NoNewFailures:(
+                $failures.Count -eq $nativeGateFailureCountBefore
+            )) {
+        Write-Host (
+            'POSIX native session gate evidence: forced libc setsid(2) ' +
+            'passed; external setsid selection bypassed.'
+        )
     }
 
     # Repeat the zero-wait spawn pattern so the Windows launch gate and POSIX
@@ -1021,7 +1136,9 @@ Start-Sleep -Milliseconds 1000
             )
         if ($raceResult.TimedOut -or
             -not $raceResult.TreeStopped -or
-            -not $raceResult.StreamsDrained) {
+            -not $raceResult.StreamsDrained -or
+            ($runtimeIsWindows -and $raceResult.ExitCode -ne 125) -or
+            (-not $runtimeIsWindows -and $raceResult.ExitCode -ne 0)) {
             Add-Failure (
                 "Expected immediate-spawn race attempt $raceAttempt to stop " +
                 'its full process tree ' +
