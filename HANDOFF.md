@@ -61,17 +61,18 @@ current pull-request evidence, and the merged default branch is clean.
   readiness/self-test/scan in about 202 seconds.
 - Semgrep `p/default` ran 82 rules over 32 tracked files with zero findings.
   Gitleaks scanned about 389 KB with no leak finding.
-- The new macOS workflow result and its native-session evidence marker remain
-  unverified until the pull-request CI job completes. The first macOS run
-  emitted the marker, then exposed logical `/var` versus physical
-  `/private/var` fixture roots as `git-root-mismatch`; the scanner identity
-  guard stays unchanged while the synthetic temp root is now physicalized.
+- Pull request #4 run `30200866202` passed all four jobs at commit `ebf18db`.
+  macOS job `89790451214` emitted the forced native-session marker once,
+  completed the full self-test and repository scan, and contained zero
+  `git-root-mismatch` lines.
+- The first macOS run exposed logical `/var` versus physical `/private/var`
+  fixture roots after emitting the marker. The scanner identity guard stayed
+  unchanged; physicalizing only the synthetic temp root fixed the failure.
 
 ## Known issues
 
-- macOS emitted the native-session marker in pull request #4 run `30199770921`,
-  but that job later failed on the now-fixed logical/physical fixture-root
-  mismatch; a fully successful real macOS result remains required.
+- No source defect is known after the successful cross-platform run. The
+  evidence-only documentation commit still needs final-head CI before merge.
 
 ## Do not re-read
 
@@ -79,8 +80,7 @@ current pull-request evidence, and the merged default branch is clean.
 
 ## Next step
 
-Complete the frozen review of the fixture-root fix, push it to pull request #4,
-and require the macOS, Windows, Ubuntu, and Windows PowerShell 5.1 checks to
-pass before merge. Confirm the successful macOS log contains the forced native
-`libc` `setsid(2)` evidence marker before changing any acceptance criterion to
-verified.
+Commit the evidence snapshot, push it to pull request #4, and require the
+macOS, Windows, Ubuntu, and Windows PowerShell 5.1 checks to pass again on the
+final head. Reconfirm the successful final-head macOS log contains the forced
+native `libc` `setsid(2)` evidence marker, then merge and clean the branch.

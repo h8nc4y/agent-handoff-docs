@@ -70,16 +70,22 @@ keep the bounded POSIX cleanup contract portable:
 
 ## Acceptance criteria and test plan
 
+Evidence snapshot: pull request #4 run `30200866202` passed the hosted
+Windows, Ubuntu, macOS 15, and Windows PowerShell 5.1 jobs at commit
+`ebf18db`. The successful macOS job `89790451214` emitted the forced native
+`libc` `setsid(2)` evidence marker, completed the full self-test and repository
+scan, and reported no `git-root-mismatch`.
+
 | Criterion | Verification | Status |
 | --- | --- | --- |
-| Checkout uses the verified official full SHA | readiness validation and workflow review | baseline verified; Windows/Ubuntu/macOS PR CI required |
-| Any mutable, aliased, escaped, or malformed external `uses:` fails closed | synthetic positive/negative readiness fixtures on Windows, Ubuntu, and macOS | baseline verified on PS5, PS7, and Ubuntu CI; macOS PR CI required |
-| The built-in workflow cannot hide or redirect required checks | exact canonical-source comparison and mutation regression | baseline verified on PS5, PS7, and Ubuntu CI; macOS PR CI required |
-| Ambient credential, loader, agent, and custom variables are absent in bounded children | cross-platform environment probe | baseline verified on Windows and Ubuntu; macOS PR CI required |
-| Required OS/runtime, isolation, PATH, locale, and Git controls remain usable | cross-platform positive environment probe and full scanner self-test | baseline verified on Windows and Ubuntu; macOS PR CI required |
-| Windows PowerShell 5.1 and PowerShell 7 behavior remains compatible | local full PS5 validation and repository scan, hosted PS5 readiness/whitespace smoke, and hosted Windows/Ubuntu/macOS PS7 full self-test plus repository scan | baseline locally verified; Windows/Ubuntu/macOS PR CI required |
-| POSIX behavior, including the native session fallback, remains compatible | full self-test on Ubuntu and macOS; the fixture forces `libc` `setsid(2)` and rejects nonzero or unconfirmed-spawn evidence | Ubuntu baseline verified; macOS PR CI required |
-| Repository security scan and whitespace checks pass | private-marker scan, Semgrep, Gitleaks, and `git diff --check` | baseline verified; Windows/Ubuntu/macOS PR CI required |
+| Checkout uses the verified official full SHA | readiness validation and workflow review | verified locally and in the evidence snapshot |
+| Any mutable, aliased, escaped, or malformed external `uses:` fails closed | synthetic positive/negative readiness fixtures on Windows, Ubuntu, and macOS | verified on local PS5/PS7 and all hosted PS7 runners |
+| The built-in workflow cannot hide or redirect required checks | exact canonical-source comparison and mutation regression | verified on local PS5/PS7 and all hosted PS7 runners |
+| Ambient credential, loader, agent, and custom variables are absent in bounded children | cross-platform environment probe | verified on hosted Windows, Ubuntu, and macOS |
+| Required OS/runtime, isolation, PATH, locale, and Git controls remain usable | cross-platform positive environment probe and full scanner self-test | verified on hosted Windows, Ubuntu, and macOS |
+| Windows PowerShell 5.1 and PowerShell 7 behavior remains compatible | local full PS5 validation and repository scan, hosted PS5 readiness/whitespace smoke, and hosted Windows/Ubuntu/macOS PS7 full self-test plus repository scan | verified locally and in the evidence snapshot |
+| POSIX behavior, including the native session fallback, remains compatible | full self-test on Ubuntu and macOS; the fixture forces `libc` `setsid(2)` and rejects nonzero or unconfirmed-spawn evidence | verified on hosted Ubuntu and macOS |
+| Repository security scan and whitespace checks pass | private-marker scan, Semgrep, Gitleaks, and `git diff --check` | verified locally and in the evidence snapshot |
 
 ## Non-goals
 
