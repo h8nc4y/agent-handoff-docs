@@ -794,6 +794,8 @@ Assert-FileContains -RelativePath 'scripts/test-scan-private-markers.ps1' -Patte
 Assert-FileContains -RelativePath 'scripts/test-scan-private-markers.ps1' -Pattern 'Test-NativePosixSessionEvidenceReady' -Description 'native POSIX evidence eligibility regression'
 Assert-FileContains -RelativePath 'scripts/private-marker-process.ps1' -Pattern 'DescendantPipeCleanupRequested' -Description 'descendant pipe cleanup evidence shape'
 Assert-FileContains -RelativePath 'scripts/test-scan-private-markers.ps1' -Pattern 'reject a result without descendant pipe cleanup' -Description 'non-pipe-leak evidence regression'
+Assert-FileContains -RelativePath 'scripts/test-scan-private-markers.ps1' -Pattern '\$tempRoot = Resolve-PhysicalDirectoryPath' -Description 'physical canonical fixture temp root'
+Assert-FileContains -RelativePath 'scripts/test-scan-private-markers.ps1' -Pattern 'physical temp-root alias regression' -Description 'physical temp-root alias regression'
 Assert-WorkflowExternalUsesPolicyRegressions
 Assert-AllWorkflowExternalUsesPinned
 Assert-WindowsPowerShell51WorkflowJobRegressions

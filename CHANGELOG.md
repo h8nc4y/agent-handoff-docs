@@ -8,6 +8,11 @@ The format loosely follows Keep a Changelog conventions.
 
 ### Fixed
 
+- Canonicalize the synthetic self-test temp root through every POSIX ancestor
+  link before creating Git fixtures. This keeps the scanner's strict root
+  identity check intact while aligning macOS temporary paths such as a logical
+  `/var` alias with Git's physical path. Add an ancestor-symlink regression so
+  future fixture changes cannot reintroduce `git-root-mismatch` failures.
 - Pin `actions/checkout` v5.1.0 to its verified full commit SHA and make OSS
   readiness reject every active external workflow `uses:` entry that is not a
   canonical owner/repository reference pinned to a lowercase 40-character

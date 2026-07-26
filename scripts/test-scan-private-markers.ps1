@@ -163,6 +163,89 @@ function Assert-NativePosixSessionEvidenceRegressions {
     }
 }
 
+function Resolve-PhysicalDirectoryPath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$DirectoryPath
+    )
+
+    $resolvedPath = [IO.Path]::GetFullPath(
+        (Resolve-Path -LiteralPath $DirectoryPath -ErrorAction Stop).Path
+    )
+    if ($runtimeIsWindows) {
+        return $resolvedPath
+    }
+
+    # Resolve every ancestor rather than only the leaf. On macOS the temporary
+    # directory commonly arrives through an alias such as /var while Git
+    # reports the physical /private/var path.
+    $rootPath = [IO.Path]::GetPathRoot($resolvedPath)
+    $currentPath = $rootPath
+    $relativePath = $resolvedPath.Substring($rootPath.Length)
+    $separators = [char[]]@(
+        [IO.Path]::DirectorySeparatorChar,
+        [IO.Path]::AltDirectorySeparatorChar
+    )
+    $segments = $relativePath.Split(
+        $separators,
+        [StringSplitOptions]::RemoveEmptyEntries
+    )
+    foreach ($segment in $segments) {
+        $candidatePath = [IO.Path]::Combine($currentPath, $segment)
+        $candidateItem = [IO.DirectoryInfo]::new($candidatePath)
+        if (-not $candidateItem.Exists) {
+            throw "Physical path component is missing: $candidatePath"
+        }
+        $linkTarget = $candidateItem.ResolveLinkTarget($true)
+        $currentPath = if ($null -eq $linkTarget) {
+            [IO.Path]::GetFullPath($candidateItem.FullName)
+        } else {
+            [IO.Path]::GetFullPath($linkTarget.FullName)
+        }
+    }
+    return $currentPath
+}
+
+function Assert-PhysicalTempRootAliasRegression {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$CanonicalTempRoot
+    )
+
+    if ($runtimeIsWindows) {
+        return
+    }
+
+    $targetParent = Join-Path $CanonicalTempRoot 'physical-temp-root-target'
+    $targetChild = Join-Path $targetParent 'child'
+    $aliasParent = Join-Path $CanonicalTempRoot 'physical-temp-root-alias'
+    New-Item -ItemType Directory -Path $targetChild | Out-Null
+    New-Item `
+        -ItemType SymbolicLink `
+        -Path $aliasParent `
+        -Target $targetParent | Out-Null
+    try {
+        $actual = Resolve-PhysicalDirectoryPath `
+            -DirectoryPath (Join-Path $aliasParent 'child')
+        $expected = Resolve-PhysicalDirectoryPath -DirectoryPath $targetChild
+        if (-not [string]::Equals(
+                $actual,
+                $expected,
+                [StringComparison]::Ordinal
+            )) {
+            Add-Failure (
+                'Expected the physical temp-root alias regression to resolve ' +
+                'an ancestor link to the target directory.'
+            )
+        }
+    }
+    finally {
+        # Remove only the synthetic link. The target stays inside tempRoot and
+        # is removed by the suite's existing final cleanup.
+        Remove-Item -LiteralPath $aliasParent -Force
+    }
+}
+
 function Get-ProcessEnvironmentSnapshot {
     $snapshot = @{}
     $environment = [Environment]::GetEnvironmentVariables('Process')
@@ -596,9 +679,11 @@ if (-not `$readyObserved) {
 
 $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("agent-handoff-docs-scan-test-" + [System.Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $tempRoot | Out-Null
+$tempRoot = Resolve-PhysicalDirectoryPath -DirectoryPath $tempRoot
 
 try {
     Assert-NativePosixSessionEvidenceRegressions
+    Assert-PhysicalTempRootAliasRegression -CanonicalTempRoot $tempRoot
     Assert-FirstBoundedInvocationValidatorRegressions
     Assert-FirstBoundedInvocationIsRawTransport
 
