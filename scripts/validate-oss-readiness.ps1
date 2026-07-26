@@ -1034,6 +1034,280 @@ function Assert-TemplateSectionContract {
     }
 }
 
+function ConvertTo-NormalizedLfText {
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyString()]
+        [string]$Source
+    )
+
+    return $Source.Replace("`r`n", "`n").Replace("`r", "`n")
+}
+
+function ConvertFrom-StrictUtf8Bytes {
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
+        [byte[]]$Bytes
+    )
+
+    # Strip at most one physical UTF-8 BOM before strict decoding. Any second
+    # BOM decodes to U+FEFF content and therefore remains digest-significant.
+    $offset = 0
+    if ($Bytes.Length -ge 3 -and
+        $Bytes[0] -eq 0xEF -and
+        $Bytes[1] -eq 0xBB -and
+        $Bytes[2] -eq 0xBF) {
+        $offset = 3
+    }
+
+    $strictUtf8 = [Text.UTF8Encoding]::new($false, $true)
+    return $strictUtf8.GetString(
+        $Bytes,
+        $offset,
+        $Bytes.Length - $offset
+    )
+}
+
+function Get-NormalizedUtf8Sha256 {
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyString()]
+        [string]$Source
+    )
+
+    $normalizedSource = ConvertTo-NormalizedLfText -Source $Source
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try {
+        $digest = $sha256.ComputeHash(
+            [Text.Encoding]::UTF8.GetBytes($normalizedSource)
+        )
+        return [BitConverter]::ToString($digest).Replace('-', '').ToLowerInvariant()
+    }
+    finally {
+        $sha256.Dispose()
+    }
+}
+
+function Get-NormalizedUtf8Sha256FromBytes {
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
+        [byte[]]$Bytes
+    )
+
+    $source = ConvertFrom-StrictUtf8Bytes -Bytes $Bytes
+    return Get-NormalizedUtf8Sha256 -Source $source
+}
+
+function Test-SkillTranslationDigestMarker {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$CanonicalSource,
+        [Parameter(Mandatory = $true)]
+        [string]$TranslationSource
+    )
+
+    $expectedDigest = Get-NormalizedUtf8Sha256 -Source $CanonicalSource
+    $normalizedTranslation = ConvertTo-NormalizedLfText `
+        -Source $TranslationSource
+    if ([Regex]::Matches(
+        $normalizedTranslation,
+        'canonical-en-sha256',
+        [Text.RegularExpressions.RegexOptions]::IgnoreCase
+    ).Count -ne 1) {
+        return $false
+    }
+    $markerPattern = (
+        '(?m)^<!-- canonical-en-sha256: ([0-9a-f]{64}); ' +
+        'normalization: utf8-lf -->$'
+    )
+    $markerMatches = [Regex]::Matches(
+        $normalizedTranslation,
+        $markerPattern
+    )
+    if ($markerMatches.Count -ne 1) {
+        return $false
+    }
+
+    # Keep the acknowledgement visible at the top of the translated document
+    # instead of allowing a stale marker to survive unnoticed in history text.
+    $expectedPrefix = (
+        "# Agent Handoff Docs（日本語完全版）`n`n" +
+        "<!-- canonical-en-sha256: $expectedDigest; " +
+        "normalization: utf8-lf -->`n"
+    )
+    if (-not $normalizedTranslation.StartsWith(
+        $expectedPrefix,
+        [StringComparison]::Ordinal
+    )) {
+        return $false
+    }
+
+    return [string]::Equals(
+        $markerMatches[0].Groups[1].Value,
+        $expectedDigest,
+        [StringComparison]::Ordinal
+    )
+}
+
+function Assert-SkillTranslationDigestRegressions {
+    $canonicalSource = "First line.`nSecond line.`n"
+    $canonicalBytes = [Text.Encoding]::UTF8.GetBytes($canonicalSource)
+    $utf8Bom = [byte[]](0xEF, 0xBB, 0xBF)
+    $oneBomBytes = [byte[]]($utf8Bom + $canonicalBytes)
+    $twoBomBytes = [byte[]]($utf8Bom + $utf8Bom + $canonicalBytes)
+    $digest = Get-NormalizedUtf8Sha256FromBytes -Bytes $canonicalBytes
+    $oneBomDigest = Get-NormalizedUtf8Sha256FromBytes -Bytes $oneBomBytes
+    $twoBomDigest = Get-NormalizedUtf8Sha256FromBytes -Bytes $twoBomBytes
+    if (-not [string]::Equals(
+        $digest,
+        $oneBomDigest,
+        [StringComparison]::Ordinal
+    ) -or [string]::Equals(
+        $digest,
+        $twoBomDigest,
+        [StringComparison]::Ordinal
+    )) {
+        Add-Failure (
+            'Skill translation digest must ignore exactly one physical BOM ' +
+            'and retain a second BOM as content.'
+        )
+    }
+
+    $invalidUtf8Rejected = $false
+    try {
+        Get-NormalizedUtf8Sha256FromBytes `
+            -Bytes ([byte[]](0xC3, 0x28)) | Out-Null
+    }
+    catch [Text.DecoderFallbackException] {
+        $invalidUtf8Rejected = $true
+    }
+    if (-not $invalidUtf8Rejected) {
+        Add-Failure 'Skill translation digest accepted invalid UTF-8 bytes.'
+    }
+
+    $validTranslation = (
+        "# Agent Handoff Docs（日本語完全版）`n`n" +
+        "<!-- canonical-en-sha256: $digest; normalization: utf8-lf -->`n`n" +
+        "Translated body.`n"
+    )
+
+    $equivalentCanonicalSources = @(
+        $canonicalSource,
+        $canonicalSource.Replace("`n", "`r`n")
+    )
+    foreach ($equivalentSource in $equivalentCanonicalSources) {
+        if (-not (Test-SkillTranslationDigestMarker `
+            -CanonicalSource $equivalentSource `
+            -TranslationSource $validTranslation)) {
+            Add-Failure (
+                'Skill translation digest rejected an equivalent UTF-8/LF ' +
+                'canonical source.'
+            )
+        }
+    }
+
+    $mutations = @(
+        @{
+            Name = 'changed canonical source'
+            Canonical = $canonicalSource + 'Changed.'
+            Translation = $validTranslation
+        },
+        @{
+            Name = 'uppercase digest'
+            Canonical = $canonicalSource
+            Translation = $validTranslation.Replace(
+                $digest,
+                $digest.ToUpperInvariant()
+            )
+        },
+        @{
+            Name = 'duplicate digest marker'
+            Canonical = $canonicalSource
+            Translation = (
+                $validTranslation +
+                "<!-- canonical-en-sha256: $digest; " +
+                "normalization: utf8-lf -->`n"
+            )
+        },
+        @{
+            Name = 'digest marker displaced from document header'
+            Canonical = $canonicalSource
+            Translation = $validTranslation.Replace(
+                "`n<!-- canonical-en-sha256:",
+                "`nIntro.`n`n<!-- canonical-en-sha256:"
+            )
+        },
+        @{
+            Name = 'unreviewed normalization label'
+            Canonical = $canonicalSource
+            Translation = $validTranslation.Replace('utf8-lf', 'raw-bytes')
+        },
+        @{
+            Name = 'case-variant duplicate marker'
+            Canonical = $canonicalSource
+            Translation = (
+                $validTranslation +
+                "<!-- CANONICAL-EN-SHA256: $digest; " +
+                "normalization: utf8-lf -->`n"
+            )
+        },
+        @{
+            Name = 'leading U+FEFF content'
+            Canonical = [char]0xFEFF + $canonicalSource
+            Translation = $validTranslation
+        }
+    )
+
+    if ($mutations.Count -ne 7) {
+        Add-Failure 'Skill translation digest regression set is incomplete.'
+    }
+    foreach ($mutation in $mutations) {
+        if (Test-SkillTranslationDigestMarker `
+            -CanonicalSource $mutation.Canonical `
+            -TranslationSource $mutation.Translation) {
+            Add-Failure (
+                'Skill translation digest accepted mutation: ' +
+                $mutation.Name
+            )
+        }
+    }
+}
+
+function Assert-SkillTranslationDigest {
+    $canonicalPath = Get-RepoFilePath -RelativePath 'SKILL.md'
+    $translationPath = Get-RepoFilePath -RelativePath 'docs/SKILL.ja.md'
+    if (-not (Test-Path -LiteralPath $canonicalPath -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $translationPath -PathType Leaf)) {
+        return
+    }
+
+    try {
+        $canonicalBytes = [IO.File]::ReadAllBytes($canonicalPath)
+        $translationBytes = [IO.File]::ReadAllBytes($translationPath)
+        $canonicalSource = ConvertFrom-StrictUtf8Bytes -Bytes $canonicalBytes
+        $translationSource = ConvertFrom-StrictUtf8Bytes -Bytes $translationBytes
+    }
+    catch [Text.DecoderFallbackException] {
+        Add-Failure (
+            'SKILL.md and docs/SKILL.ja.md must be strict UTF-8 for the ' +
+            'translation digest contract.'
+        )
+        return
+    }
+    if (-not (Test-SkillTranslationDigestMarker `
+        -CanonicalSource $canonicalSource `
+        -TranslationSource $translationSource)) {
+        $expectedDigest = Get-NormalizedUtf8Sha256FromBytes `
+            -Bytes $canonicalBytes
+        Add-Failure (
+            'docs/SKILL.ja.md must acknowledge the reviewed SKILL.md ' +
+            "digest: $expectedDigest"
+        )
+    }
+}
+
 function Test-SkillFrontmatter {
     $skillPath = Get-RepoFilePath -RelativePath 'SKILL.md'
     if (-not (Test-Path -LiteralPath $skillPath -PathType Leaf)) {
@@ -1150,6 +1424,8 @@ Assert-WindowsPowerShell51WorkflowJob
 Assert-CanonicalValidationWorkflowSourceRegressions
 Assert-CanonicalValidationWorkflowSource
 Assert-TemplateSectionContractRegressions
+Assert-SkillTranslationDigestRegressions
+Assert-SkillTranslationDigest
 
 # These are the reviewed schemas of the bundled source templates, not a rule
 # for downstream repositories that copy and customize them. Exact H1/H2
