@@ -345,6 +345,13 @@ evidence marker requires a zero target exit, a confirmed grandchild spawn,
 an observed descendant-held pipe after parent exit, successful bounded cleanup
 and stream drain, and no delayed sentinel. The grandchild payload itself writes
 the start confirmation before its delay.
+Readiness also pins each bundled English and Japanese template to its reviewed
+document title and ordered level-two section schema. It rejects a missing,
+duplicated, reordered, demoted, or unexpected peer section while allowing
+subordinate headings inside a section. Fenced examples cannot satisfy a
+required heading. Indented/empty ATX peers, Setext headings, and malformed
+backtick fences fail closed instead of hiding unreviewed document structure.
+Raw HTML H1/H2 tags are also outside the bundled template contract.
 An independent bounded Windows PowerShell 5.1 compatibility job runs
 readiness by explicitly launching `powershell.exe` from the hosted `pwsh`
 runner shell, followed by the whitespace check. The full Windows PowerShell

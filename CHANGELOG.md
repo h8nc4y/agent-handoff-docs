@@ -6,6 +6,15 @@ The format loosely follows Keep a Changelog conventions.
 
 ## Unreleased
 
+### Added
+
+- Validate the exact reviewed title and ordered level-two section schema of
+  every bundled English and Japanese template. Mutation regressions reject
+  missing, duplicated, reordered, demoted, fenced-only, unexpected, and
+  unclosed-fence forms, including indented/empty ATX headings, Setext
+  headings, raw HTML H1/H2 tags, and malformed backtick fences, while
+  retaining CRLF compatibility and subordinate headings.
+
 ### Fixed
 
 - Canonicalize the synthetic self-test temp root through every POSIX ancestor
