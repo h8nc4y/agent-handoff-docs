@@ -17,71 +17,58 @@ test, and CI state outranks this summary.
 
 ## Current goal and success metric
 
-Prevent bundled English and Japanese document templates from silently losing,
-duplicating, or reordering their required level-two sections. Success means the
-readiness validator rejects structural mutations in either language, accepts
-the reviewed templates on PowerShell 7 and Windows PowerShell 5.1, and the
-merged default branch passes all hosted validation jobs.
+Keep the merged template-section contract healthy and begin the next work unit
+from current observable repository state. Success means `main` stays clean,
+the latest hosted validation remains green, and a future template-structure
+change updates its schema and mutation fixtures together.
 
 ## Current position
 
-- `main` and `origin/main` both pointed to `f7e24ce` when this work began.
-- No open issue or pull request existed at task selection time.
-- Branch `test/lock-template-section-contract` owns this Class M work unit.
-- Mutation tests first demonstrated that the previous canonical-scope-only
-  check accepted missing, reordered, duplicated, demoted, fenced, and
-  wrong-title variants.
-- The validator now enforces each reviewed title and ordered H2 schema while
-  permitting subordinate headings and CRLF input.
-- Independent review found two P2 parser gaps: valid indented/Setext/empty
-  headings were not recognized, and an invalid backtick fence could hide an
-  actual peer heading. Both now fail closed with dedicated regressions.
-- Second review found one P2 raw-HTML gap; fence-external H1/H2 tags now fail
-  closed case-insensitively with attribute-bearing fixtures.
-- Third review found one P2 HTML-whitespace edge; form-feed-separated H1/H2
-  attributes are now covered by the raw-tag rejection and a regression.
+- Pull request #5 merged as `ed6f154` after all four hosted jobs succeeded.
+- The `main` push run `30211103677` also passed Windows, Ubuntu, macOS 15, and
+  Windows PowerShell 5.1.
+- Bundled English and Japanese templates now have reviewed H1 and ordered H2
+  contracts with 19 adversarial mutation regressions.
+- No source defect or open follow-up issue is known for this work unit.
 
 ## Key files
 
-- `scripts/validate-oss-readiness.ps1` — template contract and mutation tests.
+- `scripts/validate-oss-readiness.ps1` — template contract and mutations.
 - `templates/en/*.md` — reviewed English template structure.
 - `templates/ja/*.md` — reviewed Japanese template structure.
-- `README.md` — validation behavior exposed to contributors.
+- `README.md` — contributor-facing validation behavior.
 - `CHANGELOG.md` — durable change record.
 
 ## Recent decisions
 
-- Validate only the bundled template schema; project adopters remain free to
+- Validate only the bundled source templates; repositories remain free to
   customize copied templates.
-- Require the reviewed H1 and exact ordered H2 list while allowing subordinate
-  H3-H6 content within a section.
-- Ignore heading-looking text inside fenced code blocks so examples cannot
-  satisfy the contract.
+- Require the reviewed ATX H1/H2 structure. Fence-external Setext headings,
+  raw HTML H1/H2, malformed backtick fences, and ambiguous peer structures
+  fail closed.
+- Preserve CRLF input, subordinate H3-H6 headings, valid fenced examples, and
+  PowerShell 7 / Windows PowerShell 5.1 compatibility.
 
 ## Commands already run
 
-- `git fetch --prune origin` — completed; `main == origin/main`.
-- GitHub issue/PR query — both open counts were zero.
-- GitHub Actions query — latest `main` Validate run `30201622699` succeeded.
-- `pwsh -NoProfile -File .\scripts\validate-oss-readiness.ps1` — passed.
-- `powershell.exe ... -File .\scripts\validate-oss-readiness.ps1` — passed.
-- PowerShell 7/5.1 scanner self-tests — both passed.
-- PowerShell 7/5.1 repository scans — both passed.
+- PowerShell 7/5.1 readiness, scanner self-tests, and repository scans — passed.
 - Semgrep `p/default` — 82 rules over 32 files, zero findings.
 - Gitleaks — about 417 KB scanned, no leak finding.
-- Final independent review — P1=0, P2=0, P3=0 at raw diff SHA-256
-  `ebac2070849b437976b52227997829c578c9cf4934bd9f4e4b529ff3befa4e19`.
+- Final independent review — P1=0, P2=0, P3=0.
+- Pull request #5 and merged-main CI — all four jobs passed.
 
 ## Known issues
 
-- No source defect is known in the reviewed worktree.
+- None currently known.
 
 ## Do not re-read
 
-- Pull request #4 handoff narrative — merged and summarized in `CHANGELOG.md`;
-  current CI evidence is available from GitHub Actions.
+- Pull request #4 handoff narrative — durable results are in `CHANGELOG.md`
+  and merged history.
+- Pull request #5 review iterations — final contract and regressions are
+  executable in `scripts/validate-oss-readiness.ps1`.
 
 ## Next step
 
-1. Commit and push the reviewed change, open a pull request, and require every
-   hosted validation job to pass before merge.
+1. Reconcile current issues, pull requests, CI, and observable `main`, then
+   select the highest-value safe unblocked task.
