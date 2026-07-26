@@ -687,6 +687,353 @@ function Assert-CanonicalValidationWorkflowSource {
     }
 }
 
+function Test-TemplateSectionContract {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Source,
+        [Parameter(Mandatory = $true)]
+        [string]$ExpectedTitle,
+        [Parameter(Mandatory = $true)]
+        [string[]]$ExpectedSections
+    )
+
+    if ([string]::IsNullOrEmpty($Source) -or
+        [string]::IsNullOrEmpty($ExpectedTitle) -or
+        $ExpectedSections.Count -eq 0 -or
+        $Source -match "`r(?!`n)") {
+        return $false
+    }
+
+    $seenExpectedSections = New-Object 'System.Collections.Generic.HashSet[string]' (
+        [StringComparer]::Ordinal
+    )
+    foreach ($expectedSection in $ExpectedSections) {
+        if ([string]::IsNullOrEmpty($expectedSection) -or
+            -not $seenExpectedSections.Add($expectedSection)) {
+            return $false
+        }
+    }
+
+    $lines = @($Source -split '\r?\n')
+    if ($lines.Count -eq 0) {
+        return $false
+    }
+
+    $firstLine = $lines[0].TrimStart([char]0xFEFF)
+    if (-not [string]::Equals(
+        $firstLine,
+        "# $ExpectedTitle",
+        [StringComparison]::Ordinal
+    )) {
+        return $false
+    }
+
+    $actualSections = New-Object System.Collections.Generic.List[string]
+    $inFence = $false
+    $fenceCharacter = ''
+    $minimumFenceLength = 0
+
+    for ($lineIndex = 1; $lineIndex -lt $lines.Count; $lineIndex++) {
+        $line = $lines[$lineIndex]
+
+        if ($inFence) {
+            $closingPattern = (
+                '^[ ]{0,3}' +
+                [Regex]::Escape($fenceCharacter) +
+                "{$minimumFenceLength,}[ `t]*$"
+            )
+            if ($line -match $closingPattern) {
+                $inFence = $false
+                $fenceCharacter = ''
+                $minimumFenceLength = 0
+            }
+            continue
+        }
+
+        if ($line -match '^[ ]{0,3}(`{3,}|~{3,})(.*)$') {
+            $fence = $Matches[1]
+            $fenceInfo = $Matches[2]
+            if ($fence.StartsWith('`', [StringComparison]::Ordinal) -and
+                $fenceInfo.IndexOf('`', [StringComparison]::Ordinal) -ge 0) {
+                return $false
+            }
+            $inFence = $true
+            $fenceCharacter = $fence.Substring(0, 1)
+            $minimumFenceLength = $fence.Length
+            continue
+        }
+
+        # Raw HTML headings and Setext syntax would create unreviewed peers
+        # without appearing in the pinned ATX schema. Bundled templates
+        # intentionally use ATX headings only, so fail closed on either form.
+        if ($line -match '(?i)</?h[12](?:[ \t\x0C/>]|$)') {
+            return $false
+        }
+        if ($line -match '^[ ]{0,3}(?:=+|-+)[ \t]*$') {
+            return $false
+        }
+
+        # CommonMark permits up to three leading spaces and empty ATX
+        # headings. Detect those semantic headings before enforcing this
+        # repository's stricter reviewed spelling.
+        if ($line -match '^[ ]{0,3}(#{1,6})(?:[ \t]+.*)?[ \t]*$') {
+            $headingLevel = $Matches[1].Length
+            if ($headingLevel -eq 1) {
+                # A second top-level title changes the document identity.
+                return $false
+            }
+            if ($headingLevel -eq 2) {
+                if ($line -notmatch '^##[ \t]+(.+?)[ \t]*$') {
+                    return $false
+                }
+                $actualSections.Add($Matches[1]) | Out-Null
+            }
+        }
+    }
+
+    if ($inFence -or $actualSections.Count -ne $ExpectedSections.Count) {
+        return $false
+    }
+
+    for ($sectionIndex = 0;
+        $sectionIndex -lt $ExpectedSections.Count;
+        $sectionIndex++) {
+        if (-not [string]::Equals(
+            $actualSections[$sectionIndex],
+            $ExpectedSections[$sectionIndex],
+            [StringComparison]::Ordinal
+        )) {
+            return $false
+        }
+    }
+
+    return $true
+}
+
+function Assert-TemplateSectionContractRegressions {
+    $expectedSections = @(
+        'Canonical scope of this document',
+        'Current position',
+        'Next step'
+    )
+    $validSource = @(
+        '# HANDOFF — <project>',
+        '',
+        '## Canonical scope of this document',
+        '',
+        'Owned scope.',
+        '',
+        '## Current position',
+        '',
+        '### Detail',
+        '',
+        'Current state.',
+        '',
+        '## Next step',
+        '',
+        '1. Continue.'
+    ) -join "`n"
+
+    if (-not (Test-TemplateSectionContract `
+        -Source $validSource `
+        -ExpectedTitle 'HANDOFF — <project>' `
+        -ExpectedSections $expectedSections)) {
+        Add-Failure 'Template section contract rejected the valid regression fixture.'
+    }
+    if (-not (Test-TemplateSectionContract `
+        -Source $validSource.Replace("`n", "`r`n") `
+        -ExpectedTitle 'HANDOFF — <project>' `
+        -ExpectedSections $expectedSections)) {
+        Add-Failure 'Template section contract rejected the CRLF regression fixture.'
+    }
+
+    $mutations = @(
+        @{
+            Name = 'missing required section'
+            Source = $validSource.Replace(
+                "## Current position`n`n### Detail`n`nCurrent state.`n`n",
+                ''
+            )
+        },
+        @{
+            Name = 'reordered required sections'
+            Source = $validSource.Replace(
+                "## Current position`n`n### Detail`n`nCurrent state.`n`n## Next step",
+                "## Next step`n`n1. Continue.`n`n## Current position"
+            )
+        },
+        @{
+            Name = 'duplicate required section'
+            Source = $validSource + "`n## Next step`n"
+        },
+        @{
+            Name = 'wrong required heading level'
+            Source = $validSource.Replace('## Current position', '### Current position')
+        },
+        @{
+            Name = 'required heading inside a fenced block'
+            Source = $validSource.Replace(
+                '## Current position',
+                '```text' + "`n## Current position`n" + '```'
+            )
+        },
+        @{
+            Name = 'unexpected peer section'
+            Source = $validSource.Replace(
+                '## Next step',
+                "## Unreviewed section`n`nUnexpected.`n`n## Next step"
+            )
+        },
+        @{
+            Name = 'wrong document title'
+            Source = $validSource.Replace(
+                '# HANDOFF — <project>',
+                '# TASKS — <project>'
+            )
+        },
+        @{
+            Name = 'mixed bare carriage return'
+            Source = $validSource.Replace("`n", "`r`n") + "`r"
+        },
+        @{
+            Name = 'unclosed fenced block'
+            Source = $validSource.Replace(
+                'Current state.',
+                '```text' + "`nCurrent state."
+            )
+        },
+        @{
+            Name = 'indented unexpected peer section'
+            Source = $validSource.Replace(
+                '## Next step',
+                " ## Unexpected peer`n`n## Next step"
+            )
+        },
+        @{
+            Name = 'indented additional title'
+            Source = $validSource.Replace(
+                '## Next step',
+                " # Unexpected title`n`n## Next step"
+            )
+        },
+        @{
+            Name = 'setext level-two section'
+            Source = $validSource.Replace(
+                '## Next step',
+                "Unexpected peer`n---`n`n## Next step"
+            )
+        },
+        @{
+            Name = 'setext level-one title'
+            Source = $validSource.Replace(
+                '## Next step',
+                "Unexpected title`n===`n`n## Next step"
+            )
+        },
+        @{
+            Name = 'empty ATX peer section'
+            Source = $validSource.Replace(
+                '## Next step',
+                "##`n`n## Next step"
+            )
+        },
+        @{
+            Name = 'empty additional ATX title'
+            Source = $validSource.Replace(
+                '## Next step',
+                "#`n`n## Next step"
+            )
+        },
+        @{
+            Name = 'invalid backtick fence hiding a peer section'
+            Source = $validSource.Replace(
+                'Current state.',
+                '```foo`bar' + "`n## Unexpected peer`n" + '```'
+            )
+        },
+        @{
+            Name = 'raw HTML level-two section'
+            Source = $validSource.Replace(
+                '## Next step',
+                '<h2 class="peer">Unexpected peer</h2>' + "`n`n## Next step"
+            )
+        },
+        @{
+            Name = 'uppercase raw HTML level-one title'
+            Source = $validSource.Replace(
+                '## Next step',
+                '<H1 data-kind="peer">Unexpected title</H1>' + "`n`n## Next step"
+            )
+        },
+        @{
+            Name = 'form-feed raw HTML level-two section'
+            Source = $validSource.Replace(
+                '## Next step',
+                (
+                    '<h2' +
+                    [char]0x0C +
+                    'class="peer">Unexpected peer' +
+                    "`n`n## Next step"
+                )
+            )
+        }
+    )
+
+    if ($mutations.Count -ne 19) {
+        Add-Failure 'Template section contract regression set is incomplete.'
+    }
+    foreach ($mutation in $mutations) {
+        if ([string]::Equals(
+            $mutation.Source,
+            $validSource,
+            [StringComparison]::Ordinal
+        )) {
+            Add-Failure (
+                'Template section contract mutation did not change source: ' +
+                $mutation.Name
+            )
+            continue
+        }
+        if (Test-TemplateSectionContract `
+            -Source $mutation.Source `
+            -ExpectedTitle 'HANDOFF — <project>' `
+            -ExpectedSections $expectedSections) {
+            Add-Failure (
+                'Template section contract accepted mutation: ' +
+                $mutation.Name
+            )
+        }
+    }
+}
+
+function Assert-TemplateSectionContract {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RelativePath,
+        [Parameter(Mandatory = $true)]
+        [string]$ExpectedTitle,
+        [Parameter(Mandatory = $true)]
+        [string[]]$ExpectedSections
+    )
+
+    $filePath = Get-RepoFilePath -RelativePath $RelativePath
+    if (-not (Test-Path -LiteralPath $filePath -PathType Leaf)) {
+        Add-Failure "Cannot inspect missing template: $RelativePath"
+        return
+    }
+
+    $source = Get-Content -LiteralPath $filePath -Raw -Encoding UTF8
+    if (-not (Test-TemplateSectionContract `
+        -Source $source `
+        -ExpectedTitle $ExpectedTitle `
+        -ExpectedSections $ExpectedSections)) {
+        Add-Failure (
+            "$RelativePath does not match its reviewed title and ordered " +
+            'level-two section contract.'
+        )
+    }
+}
+
 function Test-SkillFrontmatter {
     $skillPath = Get-RepoFilePath -RelativePath 'SKILL.md'
     if (-not (Test-Path -LiteralPath $skillPath -PathType Leaf)) {
@@ -802,28 +1149,123 @@ Assert-WindowsPowerShell51WorkflowJobRegressions
 Assert-WindowsPowerShell51WorkflowJob
 Assert-CanonicalValidationWorkflowSourceRegressions
 Assert-CanonicalValidationWorkflowSource
+Assert-TemplateSectionContractRegressions
 
-# The whole framework hangs on the canonical-scope declaration, so every
-# bundled template must reserve it as a heading. English templates carry the
-# English heading; Japanese templates carry the Japanese one.
-$englishTemplates = @(
-    'templates/en/START_HERE.md',
-    'templates/en/REQUIREMENTS.md',
-    'templates/en/HANDOFF.md',
-    'templates/en/TASKS.md'
+# These are the reviewed schemas of the bundled source templates, not a rule
+# for downstream repositories that copy and customize them. Exact H1/H2
+# contracts keep the English and Japanese entry points from drifting while
+# still allowing subordinate headings inside each section.
+$templateContracts = @(
+    @{
+        Path = 'templates/en/START_HERE.md'
+        Title = 'START_HERE — <project>'
+        Sections = @(
+            'Canonical scope of this document',
+            'What this repository is',
+            'Reading order (canonical documents)',
+            'Verification commands',
+            'Hard gates (never cross without approval)',
+            'Next step'
+        )
+    },
+    @{
+        Path = 'templates/en/REQUIREMENTS.md'
+        Title = 'REQUIREMENTS — <project>'
+        Sections = @(
+            'Canonical scope of this document',
+            'Purpose and background',
+            'Functional requirements',
+            'Non-functional requirements',
+            'Non-goals',
+            'Acceptance criteria',
+            'Unverified checklist',
+            'Open questions'
+        )
+    },
+    @{
+        Path = 'templates/en/HANDOFF.md'
+        Title = 'HANDOFF — <project>'
+        Sections = @(
+            'Canonical scope of this document',
+            'Traps before you touch anything',
+            'Current goal and success metric',
+            'Current position',
+            'Key files',
+            'Recent decisions',
+            'Commands already run',
+            'Known issues',
+            'Do not re-read',
+            'Next step'
+        )
+    },
+    @{
+        Path = 'templates/en/TASKS.md'
+        Title = 'TASKS — <project>'
+        Sections = @(
+            'Canonical scope of this document',
+            'Ledger',
+            'Latest verification run',
+            'History (one line per period)'
+        )
+    },
+    @{
+        Path = 'templates/ja/START_HERE.md'
+        Title = 'START_HERE — <project>'
+        Sections = @(
+            'この資料の正本責務',
+            'このリポジトリは何か',
+            '読み順（正本）',
+            '検証コマンド',
+            '主要ゲート（承認なしに越えない境界）',
+            '次の一手'
+        )
+    },
+    @{
+        Path = 'templates/ja/REQUIREMENTS.md'
+        Title = 'REQUIREMENTS（要件定義書）— <project>'
+        Sections = @(
+            'この資料の正本責務',
+            '目的・背景',
+            '機能要件',
+            '非機能要件',
+            '非スコープ（やらないこと）',
+            '受け入れ基準',
+            '未検証チェックリスト',
+            '未決事項'
+        )
+    },
+    @{
+        Path = 'templates/ja/HANDOFF.md'
+        Title = 'HANDOFF（引き継ぎ）— <project>'
+        Sections = @(
+            'この資料の正本責務',
+            '触る前に知るべき罠',
+            '現在のゴールと成功指標',
+            '現在地',
+            'Key files',
+            '直近の決定',
+            '実行済みコマンド',
+            '既知の問題',
+            'Do not re-read（再読不要）',
+            '次の一手'
+        )
+    },
+    @{
+        Path = 'templates/ja/TASKS.md'
+        Title = 'TASKS（タスク台帳）— <project>'
+        Sections = @(
+            'この資料の正本責務',
+            '台帳',
+            '直近の検証実行',
+            '履歴（期間ごとに1行）'
+        )
+    }
 )
-foreach ($template in $englishTemplates) {
-    Assert-FileContains -RelativePath $template -Pattern '(?im)^##\s+Canonical scope of this document' -Description 'canonical-scope declaration heading'
-}
-
-$japaneseTemplates = @(
-    'templates/ja/START_HERE.md',
-    'templates/ja/REQUIREMENTS.md',
-    'templates/ja/HANDOFF.md',
-    'templates/ja/TASKS.md'
-)
-foreach ($template in $japaneseTemplates) {
-    Assert-FileContains -RelativePath $template -Pattern '(?m)^##\s+この資料の正本責務' -Description 'canonical-scope declaration heading (Japanese)'
+foreach ($contract in $templateContracts) {
+    Assert-TemplateSectionContract `
+        -RelativePath $contract.Path `
+        -ExpectedTitle $contract.Title `
+        -ExpectedSections $contract.Sections
 }
 
 Test-SkillFrontmatter
