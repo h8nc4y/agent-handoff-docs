@@ -10,7 +10,11 @@ to verify.
   and the examples under [examples](examples).
 - `SKILL.md` (English) is canonical. When you change it, update
   [docs/SKILL.ja.md](docs/SKILL.ja.md) in the same pull request so the two
-  stay in sync.
+  stay in sync. Then replace the hidden `canonical-en-sha256` marker near the
+  top of the Japanese file with the digest reported by readiness validation.
+  The marker proves that the canonical revision was reviewed during the
+  translation change; it does not prove that the translation is semantically
+  correct, so bilingual review remains required.
 - The templates come in language pairs: a change to a file under
   `templates/en/` must be mirrored in `templates/ja/` (and vice versa) in
   the same pull request.

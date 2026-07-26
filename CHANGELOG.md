@@ -8,6 +8,13 @@ The format loosely follows Keep a Changelog conventions.
 
 ### Added
 
+- Require the Japanese complete skill to acknowledge the normalized SHA-256
+  of canonical `SKILL.md`. Readiness regressions pin BOM and LF/CRLF
+  equivalence and reject stale, uppercase, duplicated, displaced, or
+  differently normalized markers. Byte-level regressions ignore exactly one
+  physical UTF-8 BOM, retain any second BOM as content, and reject malformed
+  UTF-8. The digest records review of a canonical revision; bilingual review
+  still owns semantic translation correctness.
 - Validate the exact reviewed title and ordered level-two section schema of
   every bundled English and Japanese template. Mutation regressions reject
   missing, duplicated, reordered, demoted, fenced-only, unexpected, and

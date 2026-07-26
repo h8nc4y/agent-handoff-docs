@@ -1,5 +1,7 @@
 # Agent Handoff Docs（日本語完全版）
 
+<!-- canonical-en-sha256: 54b3d89ed6c863a8ef8e80e27f129ee23b449b78b2aa51837cc84b783d55ab27; normalization: utf8-lf -->
+
 これは `SKILL.md`（英語・正典）の日本語完全版です。内容が食い違う場合は
 英語版を正とします。
 

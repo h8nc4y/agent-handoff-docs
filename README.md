@@ -352,6 +352,10 @@ subordinate headings inside a section. Fenced examples cannot satisfy a
 required heading. Indented/empty ATX peers, Setext headings, and malformed
 backtick fences fail closed instead of hiding unreviewed document structure.
 Raw HTML H1/H2 tags are also outside the bundled template contract.
+The Japanese complete skill also carries a normalized SHA-256 acknowledgement
+of canonical `SKILL.md`. A canonical change without a reviewed marker update
+fails readiness. This is a change-synchronization guard, not a claim that a
+digest can verify translation quality.
 An independent bounded Windows PowerShell 5.1 compatibility job runs
 readiness by explicitly launching `powershell.exe` from the hosted `pwsh`
 runner shell, followed by the whitespace check. The full Windows PowerShell
