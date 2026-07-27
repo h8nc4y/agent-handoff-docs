@@ -16,21 +16,19 @@ test, and CI state outranks this summary.
 
 ## Current goal and success metric
 
-Make the public synthetic examples executable reviewed contracts instead of
-existence-only files. Success means readiness rejects title or level-two
-section drift in every example, while the current valid examples pass on both
-PowerShell 7 and Windows PowerShell 5.1.
+Keep the merged synthetic-example contracts healthy and begin the next work
+unit from current observable repository state. Success means `main` stays
+clean, hosted validation remains green, and intentional example structure
+changes update the reviewed contract in the same change.
 
 ## Current position
 
-- `main` and `origin/main` both point to `ca1253f`; the working tree was clean
-  before branch `test/lock-synthetic-example-contracts` was created.
+- Pull request #9 merged as `f1e6b05`; local and remote `main` are equal.
+- Pull request run `30236574907` and merged-main run `30236893869` each passed
+  Windows, Ubuntu, macOS 15, and Windows PowerShell 5.1.
 - Open pull requests and issues are both zero.
-- Main push run `30214901387` passed the hosted validation workflow.
 - Readiness now pins the reviewed title and ordered level-two section schema
   of all three public synthetic examples.
-- A temporary `## Maintenance` to `### Maintenance` mutation failed with the
-  expected file-specific diagnostic, then was reverted.
 
 ## Key files
 
@@ -56,11 +54,12 @@ PowerShell 7 and Windows PowerShell 5.1.
 
 - `git fetch --prune origin` — succeeded; local and remote main are equal.
 - `gh pr list` / `gh issue list` — no open work.
-- `gh run list` — latest main validation succeeded.
+- Pull request #9 and merged-main hosted validation — all four jobs passed.
 - PowerShell 7/5.1 readiness and full scanner self-tests — passed.
 - PowerShell 7/5.1 repository scans — passed.
 - Gitleaks history/worktree and Semgrep `p/default` — zero findings.
 - Strict UTF-8/BOM/CR/NUL/TAB/form-feed and whitespace checks — passed.
+- Final independent review — P0=0, P1=0, P2=0, P3=0.
 
 ## Known issues
 
@@ -72,8 +71,10 @@ PowerShell 7 and Windows PowerShell 5.1.
   executable in `scripts/validate-oss-readiness.ps1`.
 - Pull requests #5 and #6 work narratives — durable results are in
   `CHANGELOG.md`, merged history, and the central dev log.
+- Pull request #9 review iterations — the merged example contracts and their
+  shared fail-closed parser are executable in readiness validation.
 
 ## Next step
 
-1. Freeze and independently review the exact patch, then publish and verify
-   hosted validation if clearance is granted.
+1. Reconcile current issues, pull requests, CI, and observable `main`, then
+   select the highest-value safe unblocked task.
