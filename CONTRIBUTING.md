@@ -18,6 +18,10 @@ to verify.
 - The templates come in language pairs: a change to a file under
   `templates/en/` must be mirrored in `templates/ja/` (and vice versa) in
   the same pull request.
+- The three public synthetic examples have reviewed title and level-two
+  section contracts in `scripts/validate-oss-readiness.ps1`. An intentional
+  structural change must update the matching contract in the same pull
+  request; subordinate headings remain available for local detail.
 - Templates contain placeholders only (`<project>`, `<date>`, `<path>`).
   Never fill them with real project content, private repository names, or
   internal absolute paths.
