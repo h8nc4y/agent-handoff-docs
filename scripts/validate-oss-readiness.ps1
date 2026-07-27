@@ -687,7 +687,7 @@ function Assert-CanonicalValidationWorkflowSource {
     }
 }
 
-function Test-TemplateSectionContract {
+function Test-ReviewedMarkdownSectionContract {
     param(
         [Parameter(Mandatory = $true)]
         [string]$Source,
@@ -764,8 +764,8 @@ function Test-TemplateSectionContract {
         }
 
         # Raw HTML headings and Setext syntax would create unreviewed peers
-        # without appearing in the pinned ATX schema. Bundled templates
-        # intentionally use ATX headings only, so fail closed on either form.
+        # without appearing in the pinned ATX schema. Reviewed bundled Markdown
+        # intentionally uses ATX headings only, so fail closed on either form.
         if ($line -match '(?i)</?h[12](?:[ \t\x0C/>]|$)') {
             return $false
         }
@@ -810,7 +810,7 @@ function Test-TemplateSectionContract {
     return $true
 }
 
-function Assert-TemplateSectionContractRegressions {
+function Assert-ReviewedMarkdownSectionContractRegressions {
     $expectedSections = @(
         'Canonical scope of this document',
         'Current position',
@@ -834,17 +834,17 @@ function Assert-TemplateSectionContractRegressions {
         '1. Continue.'
     ) -join "`n"
 
-    if (-not (Test-TemplateSectionContract `
+    if (-not (Test-ReviewedMarkdownSectionContract `
         -Source $validSource `
         -ExpectedTitle 'HANDOFF — <project>' `
         -ExpectedSections $expectedSections)) {
-        Add-Failure 'Template section contract rejected the valid regression fixture.'
+        Add-Failure 'Reviewed Markdown section contract rejected the valid regression fixture.'
     }
-    if (-not (Test-TemplateSectionContract `
+    if (-not (Test-ReviewedMarkdownSectionContract `
         -Source $validSource.Replace("`n", "`r`n") `
         -ExpectedTitle 'HANDOFF — <project>' `
         -ExpectedSections $expectedSections)) {
-        Add-Failure 'Template section contract rejected the CRLF regression fixture.'
+        Add-Failure 'Reviewed Markdown section contract rejected the CRLF regression fixture.'
     }
 
     $mutations = @(
@@ -980,7 +980,7 @@ function Assert-TemplateSectionContractRegressions {
     )
 
     if ($mutations.Count -ne 19) {
-        Add-Failure 'Template section contract regression set is incomplete.'
+        Add-Failure 'Reviewed Markdown section contract regression set is incomplete.'
     }
     foreach ($mutation in $mutations) {
         if ([string]::Equals(
@@ -989,24 +989,24 @@ function Assert-TemplateSectionContractRegressions {
             [StringComparison]::Ordinal
         )) {
             Add-Failure (
-                'Template section contract mutation did not change source: ' +
+                'Reviewed Markdown section contract mutation did not change source: ' +
                 $mutation.Name
             )
             continue
         }
-        if (Test-TemplateSectionContract `
+        if (Test-ReviewedMarkdownSectionContract `
             -Source $mutation.Source `
             -ExpectedTitle 'HANDOFF — <project>' `
             -ExpectedSections $expectedSections) {
             Add-Failure (
-                'Template section contract accepted mutation: ' +
+                'Reviewed Markdown section contract accepted mutation: ' +
                 $mutation.Name
             )
         }
     }
 }
 
-function Assert-TemplateSectionContract {
+function Assert-ReviewedMarkdownSectionContract {
     param(
         [Parameter(Mandatory = $true)]
         [string]$RelativePath,
@@ -1018,12 +1018,12 @@ function Assert-TemplateSectionContract {
 
     $filePath = Get-RepoFilePath -RelativePath $RelativePath
     if (-not (Test-Path -LiteralPath $filePath -PathType Leaf)) {
-        Add-Failure "Cannot inspect missing template: $RelativePath"
+        Add-Failure "Cannot inspect missing reviewed Markdown file: $RelativePath"
         return
     }
 
     $source = Get-Content -LiteralPath $filePath -Raw -Encoding UTF8
-    if (-not (Test-TemplateSectionContract `
+    if (-not (Test-ReviewedMarkdownSectionContract `
         -Source $source `
         -ExpectedTitle $ExpectedTitle `
         -ExpectedSections $ExpectedSections)) {
@@ -1423,7 +1423,7 @@ Assert-WindowsPowerShell51WorkflowJobRegressions
 Assert-WindowsPowerShell51WorkflowJob
 Assert-CanonicalValidationWorkflowSourceRegressions
 Assert-CanonicalValidationWorkflowSource
-Assert-TemplateSectionContractRegressions
+Assert-ReviewedMarkdownSectionContractRegressions
 Assert-SkillTranslationDigestRegressions
 Assert-SkillTranslationDigest
 
@@ -1538,7 +1538,55 @@ $templateContracts = @(
     }
 )
 foreach ($contract in $templateContracts) {
-    Assert-TemplateSectionContract `
+    Assert-ReviewedMarkdownSectionContract `
+        -RelativePath $contract.Path `
+        -ExpectedTitle $contract.Title `
+        -ExpectedSections $contract.Sections
+}
+
+# The examples are public executable guidance, not decorative prose. Pin their
+# reviewed top-level structure so truncation, accidental replacement, or a new
+# unreviewed peer section cannot pass merely because the file still exists.
+$exampleContracts = @(
+    @{
+        Path = 'examples/canonical-scope-declarations.md'
+        Title = 'Worked Examples: Canonical-Scope Declarations'
+        Sections = @(
+            'START_HERE.md',
+            'docs/REQUIREMENTS.md',
+            'docs/ARCHITECTURE.md',
+            'docs/REPORT.md',
+            'HANDOFF.md',
+            'TASKS.md',
+            'The conventions file and the thin pointer'
+        )
+    },
+    @{
+        Path = 'examples/do-not-reread-entries.md'
+        Title = 'Worked Examples: Do-Not-Re-Read Entries'
+        Sections = @(
+            'Good entries',
+            'Weak entries (avoid)',
+            'Maintenance'
+        )
+    },
+    @{
+        Path = 'examples/full-scan-verification-commands.md'
+        Title = 'Worked Examples: Full-Scan Verification Commands'
+        Sections = @(
+            'Fleet-wide existence scan',
+            'Every-document header scan',
+            'Dangling-reference sweep after moving or deleting documents',
+            'Point-in-time facts against the default branch',
+            'Turning scan output into the ledger'
+        )
+    }
+)
+if ($exampleContracts.Count -ne 3) {
+    Add-Failure 'Reviewed synthetic example contract set is incomplete.'
+}
+foreach ($contract in $exampleContracts) {
+    Assert-ReviewedMarkdownSectionContract `
         -RelativePath $contract.Path `
         -ExpectedTitle $contract.Title `
         -ExpectedSections $contract.Sections

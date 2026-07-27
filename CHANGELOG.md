@@ -21,6 +21,10 @@ The format loosely follows Keep a Changelog conventions.
   unclosed-fence forms, including indented/empty ATX headings, Setext
   headings, raw HTML H1/H2 tags, and malformed backtick fences, while
   retaining CRLF compatibility and subordinate headings.
+- Apply the same reviewed title and ordered level-two section contract to all
+  three bundled synthetic example documents. This turns truncation, accidental
+  replacement, and unreviewed peer-section drift into readiness failures
+  instead of accepting any file that merely retains the expected path.
 
 ### Fixed
 

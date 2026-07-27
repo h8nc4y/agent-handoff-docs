@@ -16,25 +16,29 @@ test, and CI state outranks this summary.
 
 ## Current goal and success metric
 
-Keep the merged skill-translation acknowledgement healthy and begin the next
-work unit from current observable repository state. Success means `main`
-stays clean, the latest hosted validation remains green, and canonical skill
-changes receive bilingual review plus a marker update in one change.
+Make the public synthetic examples executable reviewed contracts instead of
+existence-only files. Success means readiness rejects title or level-two
+section drift in every example, while the current valid examples pass on both
+PowerShell 7 and Windows PowerShell 5.1.
 
 ## Current position
 
-- Pull request #7 merged as `09afb1f` after all four hosted jobs succeeded.
-- The `main` push run `30214378747` also passed Windows, Ubuntu, macOS 15, and
-  Windows PowerShell 5.1.
-- The Japanese complete skill acknowledges the normalized canonical digest.
-- No source defect or open follow-up issue is known for this work unit.
+- `main` and `origin/main` both point to `ca1253f`; the working tree was clean
+  before branch `test/lock-synthetic-example-contracts` was created.
+- Open pull requests and issues are both zero.
+- Main push run `30214901387` passed the hosted validation workflow.
+- Readiness now pins the reviewed title and ordered level-two section schema
+  of all three public synthetic examples.
+- A temporary `## Maintenance` to `### Maintenance` mutation failed with the
+  expected file-specific diagnostic, then was reverted.
 
 ## Key files
 
 - `SKILL.md` — canonical English source included in the digest.
 - `docs/SKILL.ja.md` — Japanese complete version and acknowledgement marker.
 - `scripts/validate-oss-readiness.ps1` — strict byte/digest contract.
-- `CONTRIBUTING.md` — bilingual semantic-review responsibility.
+- `examples/*.md` — public synthetic guidance whose reviewed structure is the
+  current validation target.
 - `README.md` and `CHANGELOG.md` — public behavior and durable history.
 
 ## Recent decisions
@@ -45,14 +49,18 @@ changes receive bilingual review plus a marker update in one change.
   case-variant, displaced, or malformed markers.
 - Treat the digest only as canonical-revision acknowledgement. It does not
   verify translation meaning.
+- Reuse the exact reviewed Markdown title/section parser already exercised by
+  19 fail-closed template mutations; do not add a YAML or Markdown dependency.
 
 ## Commands already run
 
-- PowerShell 7/5.1 readiness, scanner self-tests, and repository scans — passed.
-- Semgrep `p/default` — 82 rules over 32 files, zero findings.
-- Gitleaks — about 437 KB scanned, no leak finding.
-- Final independent review — P1=0, P2=0, P3=0.
-- Pull request #7 and merged-main CI — all four jobs passed.
+- `git fetch --prune origin` — succeeded; local and remote main are equal.
+- `gh pr list` / `gh issue list` — no open work.
+- `gh run list` — latest main validation succeeded.
+- PowerShell 7/5.1 readiness and full scanner self-tests — passed.
+- PowerShell 7/5.1 repository scans — passed.
+- Gitleaks history/worktree and Semgrep `p/default` — zero findings.
+- Strict UTF-8/BOM/CR/NUL/TAB/form-feed and whitespace checks — passed.
 
 ## Known issues
 
@@ -67,5 +75,5 @@ changes receive bilingual review plus a marker update in one change.
 
 ## Next step
 
-1. Reconcile current issues, pull requests, CI, and observable `main`, then
-   select the highest-value safe unblocked task.
+1. Freeze and independently review the exact patch, then publish and verify
+   hosted validation if clearance is granted.

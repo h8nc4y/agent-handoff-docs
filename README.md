@@ -352,6 +352,11 @@ subordinate headings inside a section. Fenced examples cannot satisfy a
 required heading. Indented/empty ATX peers, Setext headings, and malformed
 backtick fences fail closed instead of hiding unreviewed document structure.
 Raw HTML H1/H2 tags are also outside the bundled template contract.
+Readiness applies the same reviewed title and ordered level-two section
+contract to all three bundled synthetic example documents. A missing,
+duplicated, reordered, demoted, fenced-only, or unexpected peer section
+therefore fails validation instead of passing merely because the example file
+still exists.
 The Japanese complete skill also carries a normalized SHA-256 acknowledgement
 of canonical `SKILL.md`. A canonical change without a reviewed marker update
 fails readiness. This is a change-synchronization guard, not a claim that a
