@@ -677,6 +677,81 @@ if (-not `$readyObserved) {
     return [Diagnostics.Process]::Start($mutatorInfo)
 }
 
+function New-WorktreeDriftScannerCopy {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$DestinationDirectory,
+
+        [Parameter(Mandatory = $true)]
+        [string]$TargetPath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$SwapPath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$BackupPath
+    )
+
+    New-Item `
+        -ItemType Directory `
+        -Path $DestinationDirectory `
+        -Force | Out-Null
+    $scannerCopy = Join-Path `
+        $DestinationDirectory `
+        'scan-private-markers.ps1'
+    Copy-Item -LiteralPath $scanner -Destination $scannerCopy
+    Copy-Item `
+        -LiteralPath $processSupport `
+        -Destination (Join-Path `
+            $DestinationDirectory `
+            'private-marker-process.ps1')
+
+    # Mutate only a disposable scanner copy at the exact boundary after every
+    # initial snapshot and the first index recheck. Production receives no
+    # caller-controlled delay or synchronization surface.
+    $anchor = 'foreach ($target in $scanTargets) {'
+    $scannerSource = [IO.File]::ReadAllText($scannerCopy)
+    $anchorOffset = $scannerSource.IndexOf(
+        $anchor,
+        [StringComparison]::Ordinal
+    )
+    if ($anchorOffset -lt 0 -or
+        $scannerSource.IndexOf(
+            $anchor,
+            $anchorOffset + $anchor.Length,
+            [StringComparison]::Ordinal
+        ) -ge 0) {
+        throw 'Cannot locate the unique worktree-drift synchronization anchor.'
+    }
+
+    $driftInjection = @'
+# Test-copy only: atomically replace a captured regular worktree file with
+# different bytes of the same length before matching and final reporting.
+[IO.File]::Replace(
+    '__SWAP__',
+    '__TARGET__',
+    '__BACKUP__'
+)
+
+'@
+    $driftInjection = $driftInjection.Replace(
+        '__SWAP__',
+        $SwapPath.Replace("'", "''")
+    ).Replace(
+        '__TARGET__',
+        $TargetPath.Replace("'", "''")
+    ).Replace(
+        '__BACKUP__',
+        $BackupPath.Replace("'", "''")
+    )
+    [IO.File]::WriteAllText(
+        $scannerCopy,
+        $scannerSource.Replace($anchor, $driftInjection + $anchor),
+        [Text.UTF8Encoding]::new($false)
+    )
+    return $scannerCopy
+}
+
 $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("agent-handoff-docs-scan-test-" + [System.Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $tempRoot | Out-Null
 $tempRoot = Resolve-PhysicalDirectoryPath -DirectoryPath $tempRoot
@@ -2379,6 +2454,127 @@ cat
             $missingWorktreeResult.Output -notmatch
             'union\.md \[index; worktree missing\]') {
             Add-Failure "Expected a missing worktree file to retain index scanning. Output: $($missingWorktreeResult.Output.Trim())"
+        }
+
+        # A same-length atomic replacement after snapshot capture must invalidate
+        # both Git-index and fallback reports. The sentinel is created at
+        # runtime from split text so the repository's own scanner never treats
+        # this synthetic fixture source as a published credential.
+        $worktreeDriftSentinel = ('g' + 'hp_') +
+            'synthetic_same_length_worktree_drift'
+        $worktreeDriftClean = 'c' * $worktreeDriftSentinel.Length
+
+        $gitWorktreeDriftRoot = New-CheckedGitFixture `
+            -Name 'git-worktree-content-drift'
+        $gitWorktreeDriftTarget = Join-Path `
+            $gitWorktreeDriftRoot `
+            'tracked.md'
+        [IO.File]::WriteAllText(
+            $gitWorktreeDriftTarget,
+            $worktreeDriftClean,
+            [Text.UTF8Encoding]::new($false)
+        )
+        [void](Invoke-CheckedFixtureGit `
+            -FixtureRoot $gitWorktreeDriftRoot `
+            -Arguments @('add', '--', 'tracked.md') `
+            -Context 'Stage worktree content-drift fixture')
+        $gitWorktreeDriftSwap = Join-Path `
+            $tempRoot `
+            'git-worktree-content-drift-external-swap'
+        $gitWorktreeDriftBackup = Join-Path `
+            $tempRoot `
+            'git-worktree-content-drift-backup'
+        [IO.File]::WriteAllText(
+            $gitWorktreeDriftSwap,
+            $worktreeDriftSentinel,
+            [Text.UTF8Encoding]::new($false)
+        )
+        $gitWorktreeDriftScanner = New-WorktreeDriftScannerCopy `
+            -DestinationDirectory (Join-Path `
+                $tempRoot `
+                'git-worktree-drift-scanner') `
+            -TargetPath $gitWorktreeDriftTarget `
+            -SwapPath $gitWorktreeDriftSwap `
+            -BackupPath $gitWorktreeDriftBackup
+        $originalScanner = $scanner
+        try {
+            $scanner = $gitWorktreeDriftScanner
+            $gitWorktreeDriftResult = Invoke-Scanner `
+                -ScanPath $gitWorktreeDriftRoot
+        }
+        finally {
+            $scanner = $originalScanner
+        }
+        if ($gitWorktreeDriftResult.ExitCode -ne 2 -or
+            $gitWorktreeDriftResult.Output -notmatch
+            'integrity: worktree-content-drift' -or
+            $gitWorktreeDriftResult.Output.Contains(
+                $worktreeDriftSentinel
+            ) -or
+            $gitWorktreeDriftResult.Output.Contains('tracked.md')) {
+            Add-Failure "Expected same-length Git worktree content drift to fail closed without reflective output. Output: $($gitWorktreeDriftResult.Output.Trim())"
+        }
+
+        # Prove the external sentinel is scanner-detectable when it is the
+        # stable observed content; otherwise the drift fixture could false-pass
+        # without exercising a meaningful stale-clean transition.
+        $gitWorktreeDriftControl = Invoke-Scanner `
+            -ScanPath $gitWorktreeDriftRoot
+        if ($gitWorktreeDriftControl.ExitCode -eq 0 -or
+            $gitWorktreeDriftControl.Output -notmatch
+            'github-classic-token-prefix') {
+            Add-Failure 'Expected the stable worktree-drift sentinel to be scanner-detectable.'
+        }
+
+        $fallbackWorktreeDriftRoot = Join-Path `
+            $tempRoot `
+            'fallback-worktree-content-drift'
+        New-Item `
+            -ItemType Directory `
+            -Path $fallbackWorktreeDriftRoot | Out-Null
+        $fallbackWorktreeDriftTarget = Join-Path `
+            $fallbackWorktreeDriftRoot `
+            'tracked.md'
+        [IO.File]::WriteAllText(
+            $fallbackWorktreeDriftTarget,
+            $worktreeDriftClean,
+            [Text.UTF8Encoding]::new($false)
+        )
+        $fallbackWorktreeDriftSwap = Join-Path `
+            $tempRoot `
+            'fallback-worktree-content-drift-external-swap'
+        $fallbackWorktreeDriftBackup = Join-Path `
+            $tempRoot `
+            'fallback-worktree-content-drift-backup'
+        [IO.File]::WriteAllText(
+            $fallbackWorktreeDriftSwap,
+            $worktreeDriftSentinel,
+            [Text.UTF8Encoding]::new($false)
+        )
+        $fallbackWorktreeDriftScanner = New-WorktreeDriftScannerCopy `
+            -DestinationDirectory (Join-Path `
+                $tempRoot `
+                'fallback-worktree-drift-scanner') `
+            -TargetPath $fallbackWorktreeDriftTarget `
+            -SwapPath $fallbackWorktreeDriftSwap `
+            -BackupPath $fallbackWorktreeDriftBackup
+        $originalScanner = $scanner
+        try {
+            $scanner = $fallbackWorktreeDriftScanner
+            $fallbackWorktreeDriftResult = Invoke-Scanner `
+                -ScanPath $fallbackWorktreeDriftRoot
+        }
+        finally {
+            $scanner = $originalScanner
+        }
+        if ($fallbackWorktreeDriftResult.ExitCode -ne 2 -or
+            $fallbackWorktreeDriftResult.Output -notmatch
+            'integrity: worktree-content-drift' -or
+            $fallbackWorktreeDriftResult.Output.Contains(
+                $worktreeDriftSentinel
+            ) -or
+            $fallbackWorktreeDriftResult.Output.Contains('tracked.md')) {
+            Add-Failure "Expected same-length fallback worktree content drift to fail closed without reflective output. Output: $($fallbackWorktreeDriftResult.Output.Trim())"
         }
 
         # Replace the real index atomically after the first raw stage listing

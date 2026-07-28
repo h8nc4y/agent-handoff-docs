@@ -319,23 +319,67 @@ function ConvertTo-SafeDisplayPath {
     return $builder.ToString()
 }
 
+function Stop-TrackedWorktreeStateFailure {
+    param(
+        [string]$DefaultReason,
+        [string]$OverrideReason = ''
+    )
+
+    # Initial capture keeps its precise diagnostics. Final verification maps
+    # every path/content failure to one fixed reason so neither path nor file
+    # state is reflected through a race-dependent diagnostic.
+    $reason = if ([string]::IsNullOrWhiteSpace($OverrideReason)) {
+        $DefaultReason
+    } else {
+        $OverrideReason
+    }
+    Stop-ScanIntegrityFailure -Reason $reason
+}
+
 function Get-SafeTrackedWorktreeState {
     param(
         [string]$RepositoryRoot,
         [string]$GitPath,
-        [string]$Mode
+        [string]$Mode,
+        [string]$FailureReason = ''
     )
 
     # Inspect each component from the validated repository root. A normal leaf
     # beneath a linked directory is not itself marked as a reparse point, so
     # checking only the final Get-Item would follow an external target.
     if ($GitPath.Length -gt $maxGitPathCharacters) {
-        Stop-ScanIntegrityFailure -Reason 'git-index-path-budget'
+        Stop-TrackedWorktreeStateFailure `
+            -DefaultReason 'git-index-path-budget' `
+            -OverrideReason $FailureReason
     }
     $segments = @($GitPath -split '/')
     if ($segments.Count -gt $maxGitPathSegments) {
-        Stop-ScanIntegrityFailure -Reason 'git-index-path-budget'
+        Stop-TrackedWorktreeStateFailure `
+            -DefaultReason 'git-index-path-budget' `
+            -OverrideReason $FailureReason
     }
+
+    # Revalidate the repository root itself before joining any child path. A
+    # root replaced with a directory link would otherwise make every ordinary
+    # child appear non-reparse while resolving outside the reviewed boundary.
+    try {
+        $repositoryRootItem = Get-Item `
+            -LiteralPath $RepositoryRoot `
+            -Force `
+            -ErrorAction Stop
+    }
+    catch {
+        Stop-TrackedWorktreeStateFailure `
+            -DefaultReason 'worktree-root-read' `
+            -OverrideReason $FailureReason
+    }
+    if (-not $repositoryRootItem.PSIsContainer -or
+        (Test-IsReparsePoint -Item $repositoryRootItem)) {
+        Stop-TrackedWorktreeStateFailure `
+            -DefaultReason 'worktree-root-type' `
+            -OverrideReason $FailureReason
+    }
+
     $currentPath = $RepositoryRoot
     for ($index = 0; $index -lt $segments.Count; $index++) {
         $currentPath = Join-Path $currentPath $segments[$index]
@@ -344,6 +388,11 @@ function Get-SafeTrackedWorktreeState {
             -Force `
             -ErrorAction SilentlyContinue
         if ($null -eq $item) {
+            if (-not [string]::IsNullOrWhiteSpace($FailureReason)) {
+                Stop-TrackedWorktreeStateFailure `
+                    -DefaultReason 'worktree-missing' `
+                    -OverrideReason $FailureReason
+            }
             return [pscustomobject]@{
                 State = 'missing'
                 Bytes = $null
@@ -356,29 +405,56 @@ function Get-SafeTrackedWorktreeState {
             # the link and ignoring it would miss an unstaged target change.
             # The immutable index blob is scanned when the worktree link is
             # absent; a present link is therefore an explicit fail-closed state.
-            Stop-ScanIntegrityFailure -Reason 'worktree-reparse-path'
+            Stop-TrackedWorktreeStateFailure `
+                -DefaultReason 'worktree-reparse-path' `
+                -OverrideReason $FailureReason
         }
         if (-not $isFinalComponent -and -not $item.PSIsContainer) {
-            Stop-ScanIntegrityFailure -Reason 'worktree-parent-type'
+            Stop-TrackedWorktreeStateFailure `
+                -DefaultReason 'worktree-parent-type' `
+                -OverrideReason $FailureReason
         }
         if ($isFinalComponent -and $item.PSIsContainer) {
-            Stop-ScanIntegrityFailure -Reason 'worktree-type-directory'
+            Stop-TrackedWorktreeStateFailure `
+                -DefaultReason 'worktree-type-directory' `
+                -OverrideReason $FailureReason
         }
     }
 
     if ($item.Length -gt $maxTextFileBytes) {
-        Stop-ScanIntegrityFailure -Reason 'worktree-size'
+        Stop-TrackedWorktreeStateFailure `
+            -DefaultReason 'worktree-size' `
+            -OverrideReason $FailureReason
     }
     try {
         $bytes = [IO.File]::ReadAllBytes($currentPath)
     }
     catch {
-        Stop-ScanIntegrityFailure -Reason 'worktree-read'
+        Stop-TrackedWorktreeStateFailure `
+            -DefaultReason 'worktree-read' `
+            -OverrideReason $FailureReason
     }
 
     # Re-walk the full path after reading. This catches replacement with a
     # symlink/reparse path and rejects same-path type drift without following a
     # newly introduced external target on the next operation.
+    try {
+        $verifiedRootItem = Get-Item `
+            -LiteralPath $RepositoryRoot `
+            -Force `
+            -ErrorAction Stop
+    }
+    catch {
+        Stop-TrackedWorktreeStateFailure `
+            -DefaultReason 'worktree-type-drift' `
+            -OverrideReason $FailureReason
+    }
+    if (-not $verifiedRootItem.PSIsContainer -or
+        (Test-IsReparsePoint -Item $verifiedRootItem)) {
+        Stop-TrackedWorktreeStateFailure `
+            -DefaultReason 'worktree-type-drift' `
+            -OverrideReason $FailureReason
+    }
     $verifyPath = $RepositoryRoot
     for ($index = 0; $index -lt $segments.Count; $index++) {
         $verifyPath = Join-Path $verifyPath $segments[$index]
@@ -389,19 +465,27 @@ function Get-SafeTrackedWorktreeState {
                 -ErrorAction Stop
         }
         catch {
-            Stop-ScanIntegrityFailure -Reason 'worktree-type-drift'
+            Stop-TrackedWorktreeStateFailure `
+                -DefaultReason 'worktree-type-drift' `
+                -OverrideReason $FailureReason
         }
         if (Test-IsReparsePoint -Item $verifiedItem) {
-            Stop-ScanIntegrityFailure -Reason 'worktree-type-drift'
+            Stop-TrackedWorktreeStateFailure `
+                -DefaultReason 'worktree-type-drift' `
+                -OverrideReason $FailureReason
         }
         if ($index -lt ($segments.Count - 1) -and
             -not $verifiedItem.PSIsContainer) {
-            Stop-ScanIntegrityFailure -Reason 'worktree-type-drift'
+            Stop-TrackedWorktreeStateFailure `
+                -DefaultReason 'worktree-type-drift' `
+                -OverrideReason $FailureReason
         }
     }
     if ($verifiedItem.PSIsContainer -or
         $verifiedItem.Length -ne $bytes.Length) {
-        Stop-ScanIntegrityFailure -Reason 'worktree-type-drift'
+        Stop-TrackedWorktreeStateFailure `
+            -DefaultReason 'worktree-type-drift' `
+            -OverrideReason $FailureReason
     }
 
     return [pscustomobject]@{
@@ -490,6 +574,7 @@ $pathComparer = if ($runtimeIsWindows) {
     [StringComparer]::Ordinal
 }
 $scanTargets = New-Object System.Collections.Generic.List[object]
+$worktreeSnapshots = New-Object System.Collections.Generic.List[object]
 $usingGitIndex = $false
 $gitExe = Get-Command git -ErrorAction SilentlyContinue
 
@@ -986,22 +1071,32 @@ if ($null -ne $gitExe) {
                         -Targets $scanTargets `
                         -DisplayPath "$($entry.Path) [$state]" `
                         -Bytes $indexBytes
-                } elseif (Test-ByteArraysEqual `
-                    -Left $indexBytes `
-                    -Right $worktreeState.Bytes) {
-                    Add-ScanTarget `
-                        -Targets $scanTargets `
-                        -DisplayPath $entry.Path `
-                        -Bytes $indexBytes
                 } else {
-                    Add-ScanTarget `
-                        -Targets $scanTargets `
-                        -DisplayPath "$($entry.Path) [index]" `
-                        -Bytes $indexBytes
-                    Add-ScanTarget `
-                        -Targets $scanTargets `
-                        -DisplayPath "$($entry.Path) [worktree]" `
-                        -Bytes $worktreeState.Bytes
+                    # Retain the exact initial worktree observation separately
+                    # from display targets so final integrity verification does
+                    # not depend on index/worktree content equality.
+                    $worktreeSnapshots.Add([pscustomobject]@{
+                        Path = $entry.Path
+                        Mode = $entry.Mode
+                        Bytes = $worktreeState.Bytes
+                    }) | Out-Null
+                    if (Test-ByteArraysEqual `
+                            -Left $indexBytes `
+                            -Right $worktreeState.Bytes) {
+                        Add-ScanTarget `
+                            -Targets $scanTargets `
+                            -DisplayPath $entry.Path `
+                            -Bytes $indexBytes
+                    } else {
+                        Add-ScanTarget `
+                            -Targets $scanTargets `
+                            -DisplayPath "$($entry.Path) [index]" `
+                            -Bytes $indexBytes
+                        Add-ScanTarget `
+                            -Targets $scanTargets `
+                            -DisplayPath "$($entry.Path) [worktree]" `
+                            -Bytes $worktreeState.Bytes
+                    }
                 }
             }
 
@@ -1119,6 +1214,11 @@ if ($usingGitIndex) {
                     Stop-ScanIntegrityFailure `
                         -Reason 'working-tree-type-drift'
                 }
+                $worktreeSnapshots.Add([pscustomobject]@{
+                    Path = $relative
+                    Mode = '100644'
+                    Bytes = $worktreeState.Bytes
+                }) | Out-Null
                 Add-ScanTarget `
                     -Targets $scanTargets `
                     -DisplayPath $relative `
@@ -1296,6 +1396,33 @@ if ($usingGitIndex) {
                 -Recurse `
                 -Force
         }
+    }
+}
+
+# Re-open every retained regular worktree path only after content matching and
+# the final Git-index checks. This is the last filesystem observation before
+# reporting, and every race-dependent failure maps to one non-reflective
+# diagnostic. The guarantee ends after this bounded final re-read.
+foreach ($snapshot in $worktreeSnapshots) {
+    try {
+        $verifiedWorktreeState = Get-SafeTrackedWorktreeState `
+            -RepositoryRoot $root `
+            -GitPath $snapshot.Path `
+            -Mode $snapshot.Mode `
+            -FailureReason 'worktree-content-drift'
+        $worktreeSnapshotMatches =
+            $verifiedWorktreeState.State -eq 'regular' -and
+            (Test-ByteArraysEqual `
+                -Left $snapshot.Bytes `
+                -Right $verifiedWorktreeState.Bytes)
+    }
+    catch {
+        # Unexpected provider/runtime failures remain non-reflective too; raw
+        # exception text can contain a local path or platform-specific details.
+        Stop-ScanIntegrityFailure -Reason 'worktree-content-drift'
+    }
+    if (-not $worktreeSnapshotMatches) {
+        Stop-ScanIntegrityFailure -Reason 'worktree-content-drift'
     }
 }
 

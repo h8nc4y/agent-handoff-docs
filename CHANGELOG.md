@@ -28,6 +28,12 @@ The format loosely follows Keep a Changelog conventions.
 
 ### Fixed
 
+- Revalidate every retained regular-worktree snapshot immediately before the
+  private-marker scanner reports. The final fail-closed pass reuses the safe
+  path traversal and compares bytes exactly, so a same-length atomic
+  replacement cannot turn a stale clean snapshot into a successful report.
+  Missing, reparse, type, size, read, and content drift at that boundary use
+  the fixed non-reflective `integrity: worktree-content-drift` reason.
 - Canonicalize the synthetic self-test temp root through every POSIX ancestor
   link before creating Git fixtures. This keeps the scanner's strict root
   identity check intact while aligning macOS temporary paths such as a logical
