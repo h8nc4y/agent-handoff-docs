@@ -4,11 +4,19 @@ param(
 
     # Keep the Windows launch-gate timing regressions runnable without entering
     # the repository fixture matrix. The normal full suite still executes them.
-    [switch]$WindowsGateDrainOnly
+    [switch]$WindowsGateDrainOnly,
+
+    # Exercise the first fast-exit bounded child without entering the wider
+    # fixture matrix. This keeps exit-observation regressions cheap to reproduce
+    # on every supported PowerShell host.
+    [switch]$ExitObservationOnly
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+if ($WindowsGateDrainOnly -and $ExitObservationOnly) {
+    throw 'Choose only one focused self-test mode.'
+}
 $runtimeIsWindows = [Environment]::OSVersion.Platform -eq
     [PlatformID]::Win32NT
 
@@ -316,6 +324,27 @@ function Test-BoundedResultHealthy {
         -not $Result.OutputLimitExceeded -and
         $Result.TreeStopped -and
         $Result.StreamsDrained
+}
+
+function Format-PrivateMarkerBoundedResultMetadata {
+    param([AllowNull()][object]$Result)
+
+    if ($null -eq $Result) {
+        return 'result=null'
+    }
+
+    # Diagnostics expose only fixed booleans, exit state, and byte counts.
+    # Never reflect scanner output, local paths, repository contents, or
+    # credential-shaped values into CI logs.
+    return @(
+        "exit=$($Result.ExitCode)"
+        "timeout=$($Result.TimedOut)"
+        "limit=$($Result.OutputLimitExceeded)"
+        "tree=$($Result.TreeStopped)"
+        "streams=$($Result.StreamsDrained)"
+        "stdoutLength=$($Result.StdoutBytes.Length)"
+        "stderrLength=$($Result.StderrBytes.Length)"
+    ) -join ', '
 }
 
 function Test-PrivateMarkerByteSequenceEqual {
@@ -1006,6 +1035,197 @@ function Assert-FirstBoundedInvocationIsRawTransport {
     }
 }
 
+function Test-BoundedLoopUsesSingleExitSnapshot {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Source
+    )
+
+    # One iteration must make one process-exit observation and reuse it for
+    # timeout, exit-code capture, and the successful drain break. Multiple
+    # HasExited reads can transition false -> true inside one iteration and
+    # break while the result still carries its initial exit code.
+    $tokens = $null
+    $parseErrors = $null
+    $sourceAst = [Management.Automation.Language.Parser]::ParseInput(
+        $Source,
+        [ref]$tokens,
+        [ref]$parseErrors
+    )
+    if ($parseErrors.Count -gt 0) {
+        return $false
+    }
+
+    $boundedFunctions = @(
+        $sourceAst.FindAll(
+            {
+                param($node)
+                return $node -is
+                        [Management.Automation.Language.FunctionDefinitionAst] -and
+                    $node.Name -eq 'Invoke-PrivateMarkerBoundedProcess'
+            },
+            $true
+        )
+    )
+    if ($boundedFunctions.Count -ne 1) {
+        return $false
+    }
+
+    $candidateLoops = @(
+        $boundedFunctions[0].Body.FindAll(
+            {
+                param($node)
+                if ($node -isnot
+                        [Management.Automation.Language.WhileStatementAst]) {
+                    return $false
+                }
+                $exitReads = @(
+                    $node.Body.FindAll(
+                        {
+                            param($member)
+                            return $member -is
+                                    [Management.Automation.Language.MemberExpressionAst] -and
+                                $member.Member.Value -eq 'HasExited'
+                        },
+                        $true
+                    )
+                )
+                return $exitReads.Count -gt 0
+            },
+            $true
+        )
+    )
+    if ($candidateLoops.Count -ne 1) {
+        return $false
+    }
+
+    $loop = $candidateLoops[0]
+    $exitReads = @(
+        $loop.Body.FindAll(
+            {
+                param($node)
+                return $node -is
+                        [Management.Automation.Language.MemberExpressionAst] -and
+                    $node.Expression -is
+                        [Management.Automation.Language.VariableExpressionAst] -and
+                    $node.Expression.VariablePath.UserPath -eq 'process' -and
+                    $node.Member.Value -eq 'HasExited'
+            },
+            $true
+        )
+    )
+    if ($exitReads.Count -ne 1) {
+        return $false
+    }
+
+    $snapshotAssignments = @(
+        $loop.Body.FindAll(
+            {
+                param($node)
+                return $node -is
+                        [Management.Automation.Language.AssignmentStatementAst] -and
+                    $node.Left -is
+                        [Management.Automation.Language.VariableExpressionAst] -and
+                    $node.Left.VariablePath.UserPath -eq 'processHasExited'
+            },
+            $true
+        )
+    )
+    if ($snapshotAssignments.Count -ne 1) {
+        return $false
+    }
+
+    $assignedExitReads = @(
+        $snapshotAssignments[0].Right.FindAll(
+            {
+                param($node)
+                return $node -is
+                        [Management.Automation.Language.MemberExpressionAst] -and
+                    $node.Member.Value -eq 'HasExited'
+            },
+            $true
+        )
+    )
+    if ($assignedExitReads.Count -ne 1 -or
+        $assignedExitReads[0].Extent.StartOffset -ne
+            $exitReads[0].Extent.StartOffset -or
+        $assignedExitReads[0].Extent.EndOffset -ne
+            $exitReads[0].Extent.EndOffset) {
+        return $false
+    }
+
+    $snapshotReferences = @(
+        $loop.Body.FindAll(
+            {
+                param($node)
+                return $node -is
+                        [Management.Automation.Language.VariableExpressionAst] -and
+                    $node.VariablePath.UserPath -eq 'processHasExited'
+            },
+            $true
+        )
+    )
+    return $snapshotReferences.Count -eq 4
+}
+
+function Assert-BoundedLoopExitSnapshotValidatorRegressions {
+    $cases = @(
+        [pscustomobject]@{
+            Name = 'single-snapshot'
+            Expected = $true
+            Source = @'
+function Invoke-PrivateMarkerBoundedProcess {
+    while ($true) {
+        $processHasExited = $process.HasExited
+        if (-not $processHasExited) { }
+        if ($processHasExited) { }
+        if ($processHasExited) { break }
+    }
+}
+'@
+        },
+        [pscustomobject]@{
+            Name = 'multiple-direct-reads'
+            Expected = $false
+            Source = @'
+function Invoke-PrivateMarkerBoundedProcess {
+    while ($true) {
+        if (-not $process.HasExited) { }
+        if ($process.HasExited) { }
+        if ($process.HasExited) { break }
+    }
+}
+'@
+        },
+        [pscustomobject]@{
+            Name = 'unused-snapshot'
+            Expected = $false
+            Source = @'
+function Invoke-PrivateMarkerBoundedProcess {
+    while ($true) {
+        $processHasExited = $process.HasExited
+        break
+    }
+}
+'@
+        }
+    )
+
+    foreach ($case in $cases) {
+        $actual = Test-BoundedLoopUsesSingleExitSnapshot -Source $case.Source
+        if ($actual -ne $case.Expected) {
+            Add-Failure "Exit-snapshot validator regression failed: $($case.Name)."
+        }
+    }
+}
+
+function Assert-BoundedLoopUsesSingleExitSnapshot {
+    $source = [IO.File]::ReadAllText($processSupport)
+    if (-not (Test-BoundedLoopUsesSingleExitSnapshot -Source $source)) {
+        Add-Failure 'Expected the bounded process loop to reuse one HasExited snapshot for timeout, exit capture, and drain completion.'
+    }
+}
+
 function Invoke-Scanner {
     param(
         [string]$ScanPath,
@@ -1244,6 +1464,8 @@ try {
     Assert-PhysicalTempRootAliasRegression -CanonicalTempRoot $tempRoot
     Assert-FirstBoundedInvocationValidatorRegressions
     Assert-FirstBoundedInvocationIsRawTransport
+    Assert-BoundedLoopExitSnapshotValidatorRegressions
+    Assert-BoundedLoopUsesSingleExitSnapshot
 
     # This must remain the first top-level bounded helper invocation. Scanner
     # fixtures enter the owned Job first, so their nested Git calls reuse it and
@@ -1306,7 +1528,7 @@ exit 37
         Add-Failure "Expected the containment gate to preserve binary stdin/stdout/stderr, EOF, and exit code exactly ($rawTransportDiagnostic)."
     }
 
-    if ($runtimeIsWindows) {
+    if ($runtimeIsWindows -and -not $ExitObservationOnly) {
         Assert-WindowsGatePayloadBudgetRegressions -TempRoot $tempRoot
         Assert-WindowsGateDrainBudgetRegressions -TempRoot $tempRoot
     }
@@ -1314,7 +1536,7 @@ exit 37
         Add-Failure 'The Windows gate drain-only regression requires Windows.'
     }
 
-    if (-not $WindowsGateDrainOnly) {
+    if (-not $WindowsGateDrainOnly -and -not $ExitObservationOnly) {
     # PowerShell accepts a UTF-8 preamble at its own input boundary, so the
     # synthetic echo above cannot expose Windows PowerShell 5.1 adding that
     # preamble before raw BaseStream writes. Exercise native Git at the same
@@ -2097,7 +2319,13 @@ public static class SyntheticJobIdentityProbe
         -ScanPath $cleanRoot `
         -InheritedEnvironment @{ OS = $forgedOsValue }
     if ($forgedOsScannerResult.ExitCode -ne 0) {
-        Add-Failure "Expected scanner platform selection to ignore a forged OS variable. Output: $($forgedOsScannerResult.Output.Trim())"
+        $forgedOsScannerDiagnostic =
+            Format-PrivateMarkerBoundedResultMetadata `
+                -Result $forgedOsScannerResult
+        Add-Failure (
+            'Expected scanner platform selection to ignore a forged OS ' +
+            "variable ($forgedOsScannerDiagnostic)."
+        )
     }
 
     $markerRoot = Join-Path $tempRoot 'marker'
