@@ -16,44 +16,34 @@ test, and CI state outranks this summary.
 
 ## Current goal and success metric
 
-Replace the Windows launch gate's fixed 100 ms post-exit drain with an explicit
-bounded budget derived from the parent contract. Success means ordinary
-scheduler delay preserves exact raw transport, an over-budget inherited pipe
-still returns `125` and is killed with the owned Job, and all local and hosted
-validation is green.
+Make bounded process-exit observation atomic within each polling iteration.
+Success means a fast child cannot skip exit-code capture between separate
+`HasExited` reads, targeted Windows/Linux evidence is green, final full
+self-tests pass on the exact reviewed freeze, and hosted validation is green.
 
 ## Current position
 
-- Local and remote `main` are equal at `6603a83`.
-- Pull request #11 run `30341015703` passed every hosted job, but merged-main
-  run `30341569740` failed the first Windows PowerShell 7 raw-transport
-  assertion before the new worktree-drift fixtures ran.
-- The exact merged tree then passed one bounded local PowerShell 7 full
-  self-test with exit `0`, the final success marker, and zero stderr bytes.
-- Historical run `30144735948` failed the same assertion before pull request
-  #11 existed. Both the fixed 100 ms gate drain and the raw regression's
-  explicit 5-second test timeout are therefore pre-existing reliability
-  boundaries, not regressions introduced by worktree verification.
-- A later loaded local targeted run preserved stdout 12/12 and stderr 8/8
-  exactly but returned `TimedOut=True`, exit `0`, with the tree stopped and
-  streams drained. This proves the 5-second test budget was independently too
-  tight; it does not identify the old hosted run's missing field-level cause.
-- Open pull requests and issues are both zero.
-- Branch `fix/windows-gate-drain-budget` now passes an explicit validated
-  budget in the trusted payload. Missing/coerced/out-of-range values fail before
-  child start; a 300 ms holder preserves exact transport under an explicit
-  2-second budget; a 4-second holder requesting 5 seconds is capped by the
-  parent's 2-second drain, returns `125`, and is killed with the owned Job.
-- The three targeted Windows timing probes—first raw transport,
-  delayed-within-budget, and over-budget inherited pipe—use the existing finite
-  30-second production default. The production implementation/default and
-  native Git fixture remain unchanged.
-- Pull request #12 hosted run `30348613094` passed Ubuntu, Windows PowerShell
-  5.1, and macOS. Windows PowerShell 7 passed the former raw-transport failure
-  point, then failed the existing immediate-spawn sentinel assertion because
-  its 1-second sentinel raced the newly equal 1-second production gate budget.
-  The fixture now pins a 250 ms gate budget so the sentinel remains strictly
-  over-budget without weakening the production default.
+- Local and remote `main` are equal at merge commit `bff81eb` from pull request
+  #12.
+- Pull request #12 head run `30350038650` passed Windows PowerShell 7, Windows
+  PowerShell 5.1, Ubuntu, and macOS. It included the corrected 250 ms
+  immediate-spawn fixture and the 1-second production gate budget.
+- Post-main run `30350539529` passed both Windows jobs and macOS. Ubuntu alone
+  failed the forged-`OS` scanner assertion while sanitized stdout still said
+  the scan passed.
+- `Invoke-Scanner` adds a separate failure for unhealthy timeout, output-limit,
+  tree-stop, or stream-drain flags. The hosted log contained only the nonzero
+  exit assertion.
+- The bounded polling loop read `Process.HasExited` three times per iteration.
+  A false-to-true transition could therefore enter the successful drain break
+  before exit-code capture and return the initial `-1` with healthy flags.
+- Branch `fix/atomic-exit-observation` snapshots `HasExited` once after stream
+  updates and reuses it for timeout, exit capture, and break. The AST seal was
+  red with three direct reads and is green with one read and four snapshot
+  references.
+- The forged-`OS` failure now emits only fixed bounded flags and byte lengths.
+  `-ExitObservationOnly` runs structural checks plus the first fast-exit raw
+  transport regression without entering the wider fixture matrix.
 
 ## Key files
 
@@ -63,62 +53,46 @@ validation is green.
 - `scripts/scan-private-markers.ps1` — snapshot capture and final integrity
   reporting boundary.
 - `scripts/test-scan-private-markers.ps1` — deterministic regression owner.
-- `docs/worktree-content-drift-hardening*.md` — Class M design and acceptance
-  criteria in English and Japanese.
-- `docs/windows-gate-drain-hardening*.md` — current Class M design, evidence,
-  and acceptance criteria.
+- `docs/atomic-exit-observation-hardening*.md` — current Class M exit-race
+  design, evidence, and acceptance criteria.
 - `README.md` and `CHANGELOG.md` — public behavior and durable history.
 
 ## Recent decisions
 
-- Read source as raw bytes, remove at most one physical UTF-8 BOM, decode
-  strict UTF-8, then normalize line endings before SHA-256.
-- Treat a second BOM as U+FEFF content and reject stale, duplicated,
-  case-variant, displaced, or malformed markers.
-- Treat the digest only as canonical-revision acknowledgement. It does not
-  verify translation meaning.
-- Reuse the exact reviewed Markdown title/section parser already exercised by
-  19 fail-closed template mutations; do not add a YAML or Markdown dependency.
-- Retain verification metadata only for regular-worktree snapshots. Re-read
-  them through the existing safe traversal immediately before final reporting,
-  compare bytes exactly, and map all final-boundary failures to one
-  non-reflective reason.
-- Describe this as a bounded two-observation guarantee, not filesystem
-  compare-and-swap after the final read.
-- Pass a finite Windows gate output-drain budget in the trusted payload. Never
-  exceed the parent's drain budget or remove the exit `125` fail-closed path.
-- Treat the hosted failure's exact field-level cause as unconfirmed because the
-  old assertion emitted no bounded-result metadata. Prove the corrected timing
-  boundary with deterministic synthetic fixtures.
+- Snapshot process exit once per polling iteration. Never let timeout, exit
+  capture, and successful drain completion perform independent `HasExited`
+  reads.
+- Keep fast-exit failure diagnostics non-reflective: fixed flags, exit state,
+  and byte lengths only.
+- Keep BOM-less PowerShell 5.1-executed source comments in the repository's
+  established English/ASCII style; keep Japanese rationale in companion docs.
 
 ## Commands already run
 
-- Targeted same-length atomic replacement — Git and fallback modes both exit
-  `2`; fixed reason present; path and sentinel absent.
-- PowerShell 7/5.1 readiness and repository scans — passed.
-- Gitleaks 8.30.1 directory/history scans and Semgrep 1.165.0 `p/default` —
-  zero findings.
-- Strict UTF-8/BOM/CR/NUL/TAB/form-feed, final-LF, and whitespace checks —
-  passed for all eight changed files.
-- PowerShell 7 full scanner self-test — exit `0`, final marker
-  `Private marker scan self-test passed.`, stderr zero bytes.
-- Exact merged-main diagnostic PowerShell 7 full self-test — exit `0`, final
-  marker present, stderr zero bytes, and no matching process remained.
-- Targeted Windows gate RED — exit `1`; invalid payloads started their child
-  and the 300 ms holder returned `125`.
-- Targeted Windows gate GREEN on PowerShell 7 and Windows PowerShell 5.1 —
-  both exit `0`, final marker present, stderr zero bytes, and no scanner/gate
-  process remained.
-- Focused-review attempts under later host load then timed out the first raw
-  probe at 5 seconds (12/12 and 8/8 exact) and 10 seconds (0/12 and 0/8).
-  Both stopped the tree and drained streams. Attempt three uses the existing
-  30-second production default as the finite test-only budget.
+- Exit-observation AST seal RED — target loop direct `HasExited` reads `3`,
+  static seal false.
+- Exit-observation AST seal GREEN — target loop direct read `1`, snapshot
+  references `4`, static seal true.
+- `-ExitObservationOnly` on PowerShell 7 and Windows PowerShell 5.1 — both exit
+  `0`, exact final marker, stderr zero bytes.
+- Cached Linux image `a52d8a7eeb3c` with network disabled, read-only
+  root/repository, `no-new-privileges`, finite resources, and a 45-second
+  watchdog — exit `0`, exact final marker, stderr zero bytes, residual
+  containers zero.
+- A BOM-less Japanese source comment made Windows PowerShell 5.1 absorb the
+  following snapshot assignment into the comment token. Restoring the file's
+  established English/ASCII comment convention produced one assignment and
+  four references in the PS5.1 AST, then the targeted test passed.
+- PowerShell 7/5.1 OSS readiness — both exit `0`.
+- Text hygiene across eight changed/new files — strict UTF-8, no BOM/CRLF/NUL/
+  tab/form-feed, final LF present; `git diff --check` passed.
+- Gitleaks 8.30.1 directory/history — zero findings. Semgrep 1.165.0
+  `p/default` — 82 rules, 38 tracked targets, zero findings.
 
 ## Known issues
 
-- Merged-main run `30341569740` remains red until the bounded Windows gate
-  follow-up is implemented and validated.
-- Final full scanner self-tests and hosted validation for this branch remain
+- Exact-freeze full self-tests, independent review, repository private-marker
+  scans, and hosted validation for `fix/atomic-exit-observation` remain
   pending.
 
 ## Do not re-read
@@ -132,7 +106,7 @@ validation is green.
 
 ## Next step
 
-1. Run non-scanner static/security gates and freeze the exact staged tree.
+1. Run non-scanner text/security gates and freeze the exact staged tree.
 2. Request independent P0–P3 review of the freeze.
 3. After the shared scanner slot is available, run final PowerShell 7/5.1 full
    self-tests and repository scans.

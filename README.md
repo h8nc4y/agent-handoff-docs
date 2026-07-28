@@ -151,6 +151,10 @@ docs/windows-gate-drain-hardening.md
                          Class M Windows gate drain design (English)
 docs/windows-gate-drain-hardening.ja.md
                          Class M Windows gate drain design (Japanese)
+docs/atomic-exit-observation-hardening.md
+                         Class M process-exit observation design (English)
+docs/atomic-exit-observation-hardening.ja.md
+                         Class M process-exit observation design (Japanese)
 templates/en/            English templates (placeholders only)
   START_HERE.md          Kickoff file
   REQUIREMENTS.md        Requirements with acceptance-criteria table
@@ -334,6 +338,14 @@ child's result. The self-test exercises immediate transport, scheduler delay
 beyond the former 100 ms window, malformed budgets, and an over-budget
 inherited pipe directly because a scanner fixture already inside the owned Job
 takes the separate reuse path.
+
+The bounded polling loop reads `Process.HasExited` once per iteration and
+reuses that snapshot for timeout handling, exit-code capture, and successful
+stream-drain completion. This prevents a fast child from transitioning between
+two reads and returning the helper's initial exit code with otherwise healthy
+result flags. See the
+[English design](docs/atomic-exit-observation-hardening.md) and
+[Japanese design](docs/atomic-exit-observation-hardening.ja.md).
 
 Every bounded scanner/Git child environment is rebuilt from an empty map.
 Only runtime values derived from trusted OS APIs, isolation-root paths, fixed

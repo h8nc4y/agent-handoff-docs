@@ -1279,6 +1279,12 @@ catch {
                 }
             }
 
+            # Multiple HasExited reads can transition false -> true inside one
+            # iteration and break after drain completion without capturing the
+            # exit code. Reuse one observation for timeout, capture, and break;
+            # a later state transition is handled by the next iteration.
+            $processHasExited = $process.HasExited
+
             if ($outputLimitExceeded -and -not $ownedTreeStopRequested) {
                 $ownedTreeStopRequested = $true
                 $treeStopped = Stop-PrivateMarkerOwnedProcessTreeBounded `
@@ -1287,7 +1293,7 @@ catch {
                     -PosixProcessGroupId $posixProcessGroupId
             }
 
-            if (-not $process.HasExited -and
+            if (-not $processHasExited -and
                 $runtime.ElapsedMilliseconds -ge $TimeoutMilliseconds) {
                 $timedOut = $true
                 if (-not $ownedTreeStopRequested) {
@@ -1299,12 +1305,12 @@ catch {
                 }
             }
 
-            if ($process.HasExited -and $exitObservedAt -lt 0) {
+            if ($processHasExited -and $exitObservedAt -lt 0) {
                 $exitObservedAt = $runtime.ElapsedMilliseconds
                 $exitCode = $process.ExitCode
             }
 
-            if ($process.HasExited -and $stdinClosed -and
+            if ($processHasExited -and $stdinClosed -and
                 $stdoutClosed -and $stderrClosed) {
                 $streamsDrained = -not $streamReadFailed -and
                     -not $stdinWriteFailed

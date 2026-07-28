@@ -28,6 +28,12 @@ The format loosely follows Keep a Changelog conventions.
 
 ### Fixed
 
+- Read `Process.HasExited` once per bounded polling iteration and reuse that
+  snapshot for timeout handling, exit-code capture, and successful stream
+  completion. This closes a false-to-true transition race that could return
+  the initial exit code `-1` with healthy flags and pass stdout. Add an AST
+  source seal, a cross-host `-ExitObservationOnly` fast-exit regression, and
+  non-reflective fixed-field diagnostics for the forged-`OS` scanner fixture.
 - Replace the Windows launch gate's fixed 100 ms post-target drain with an
   explicit integer budget carried in the trusted payload. The default 1-second
   window is capped by the parent's drain budget: a 300 ms inherited-pipe delay

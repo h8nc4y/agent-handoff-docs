@@ -64,6 +64,10 @@ keep the bounded POSIX cleanup contract portable:
   budget. Completion within that window preserves the requested child's exact
   byte streams and exit code; an inherited pipe that remains open beyond the
   window returns `125` and releases the parent to close the owned Job.
+- Each bounded polling iteration reads `Process.HasExited` once. Timeout
+  handling, exit-code capture, and successful stream-drain completion reuse
+  that snapshot, so a fast exit cannot skip capture and return the initial exit
+  code with otherwise healthy result flags.
 - Every tracked regular worktree snapshot retains enough non-sensitive
   verification data to re-open the same relative path through the scanner's
   fail-closed path traversal. Immediately before final reporting, the scanner
@@ -112,6 +116,7 @@ scan, and reported no `git-root-mismatch`.
 | POSIX behavior, including the native session fallback, remains compatible | full self-test on Ubuntu and macOS; the fixture forces `libc` `setsid(2)` and rejects nonzero or unconfirmed-spawn evidence | verified on hosted Ubuntu and macOS |
 | A same-length tracked-worktree replacement cannot produce a stale success report | deterministic disposable-scanner-copy regression pauses after snapshot capture, atomically replaces the worktree file, and requires `integrity: worktree-content-drift` | verified locally on PowerShell 7; hosted cross-platform evidence pending |
 | Windows gate scheduling delay does not corrupt raw transport, while a descendant-held pipe still fails closed | exact immediate transport, delayed-drain success beyond 100 ms, malformed payload fail-before-start, and over-budget inherited-pipe cleanup regressions | verified locally on PowerShell 7 and Windows PowerShell 5.1; hosted evidence pending |
+| A fast child exit cannot skip exit-code capture between polling reads | AST single-snapshot seal, fast-exit `-ExitObservationOnly` regression on both Windows hosts and native Linux, forged-`OS` scanner regression, and hosted four-OS validation | targeted Windows and bounded native Linux evidence verified; full and hosted evidence pending |
 | Repository security scan and whitespace checks pass | private-marker scan, Semgrep, Gitleaks, and `git diff --check` | private-marker and whitespace checks verified locally and in the evidence snapshot; Semgrep and Gitleaks verified locally |
 
 ## Non-goals
