@@ -147,6 +147,10 @@ docs/worktree-content-drift-hardening.md
                          Class M scanner hardening design (English)
 docs/worktree-content-drift-hardening.ja.md
                          Class M scanner hardening design (Japanese)
+docs/windows-gate-drain-hardening.md
+                         Class M Windows gate drain design (English)
+docs/windows-gate-drain-hardening.ja.md
+                         Class M Windows gate drain design (Japanese)
 templates/en/            English templates (placeholders only)
   START_HERE.md          Kickoff file
   REQUIREMENTS.md        Requirements with acceptance-criteria table
@@ -321,9 +325,15 @@ stderr with fixed 8 KiB buffers and a bounded final drain, preserving
 binary Git protocols without PowerShell text or CLIXML conversion. On
 Windows PowerShell 5.1, process startup temporarily selects and then
 restores a BOM-less UTF-8 input encoding so raw Git batch requests cannot
-gain a preamble. The self-test exercises this first-gate transport directly
-because a scanner fixture already inside the owned Job takes the separate
-reuse path.
+gain a preamble. The parent passes a strict integer output-drain budget to
+the trusted gate; the default is 1 second and the effective value never
+exceeds the parent's complete drain window. If the target-side pipes remain
+open beyond that budget, the gate returns `125` and lets the parent close the
+owned Job instead of reporting potentially truncated bytes as the requested
+child's result. The self-test exercises immediate transport, scheduler delay
+beyond the former 100 ms window, malformed budgets, and an over-budget
+inherited pipe directly because a scanner fixture already inside the owned Job
+takes the separate reuse path.
 
 Every bounded scanner/Git child environment is rebuilt from an empty map.
 Only runtime values derived from trusted OS APIs, isolation-root paths, fixed

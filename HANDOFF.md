@@ -16,24 +16,38 @@ test, and CI state outranks this summary.
 
 ## Current goal and success metric
 
-Close the tracked-worktree content-drift gap without weakening the scanner's
-existing fail-closed boundaries. Success means a deterministic same-length
-atomic replacement fails with the fixed non-reflective reason, both scan modes
-reuse the existing safe traversal, and all local and hosted validation remains
-green.
+Replace the Windows launch gate's fixed 100 ms post-exit drain with an explicit
+bounded budget derived from the parent contract. Success means ordinary
+scheduler delay preserves exact raw transport, an over-budget inherited pipe
+still returns `125` and is killed with the owned Job, and all local and hosted
+validation is green.
 
 ## Current position
 
-- Local and remote `main` are equal at `a005c2b`.
-- Merged-main run `30237752341` passed Windows, Ubuntu, macOS 15, and Windows
-  PowerShell 5.1.
+- Local and remote `main` are equal at `6603a83`.
+- Pull request #11 run `30341015703` passed every hosted job, but merged-main
+  run `30341569740` failed the first Windows PowerShell 7 raw-transport
+  assertion before the new worktree-drift fixtures ran.
+- The exact merged tree then passed one bounded local PowerShell 7 full
+  self-test with exit `0`, the final success marker, and zero stderr bytes.
+- Historical run `30144735948` failed the same assertion before pull request
+  #11 existed. Both the fixed 100 ms gate drain and the raw regression's
+  explicit 5-second test timeout are therefore pre-existing reliability
+  boundaries, not regressions introduced by worktree verification.
+- A later loaded local targeted run preserved stdout 12/12 and stderr 8/8
+  exactly but returned `TimedOut=True`, exit `0`, with the tree stopped and
+  streams drained. This proves the 5-second test budget was independently too
+  tight; it does not identify the old hosted run's missing field-level cause.
 - Open pull requests and issues are both zero.
-- The baseline disposable scanner-copy reproduction proved that a same-length
-  tracked worktree replacement after snapshot capture passed from stale bytes,
-  while a direct control scan detected the replacement.
-- Branch `fix/worktree-content-drift` now retains every regular-worktree
-  snapshot and re-reads it immediately before reporting. Targeted Git and
-  fallback regressions pass with the fixed non-reflective reason.
+- Branch `fix/windows-gate-drain-budget` now passes an explicit validated
+  budget in the trusted payload. Missing/coerced/out-of-range values fail before
+  child start; a 300 ms holder preserves exact transport under an explicit
+  2-second budget; a 4-second holder requesting 5 seconds is capped by the
+  parent's 2-second drain, returns `125`, and is killed with the owned Job.
+- The three targeted Windows timing probes—first raw transport,
+  delayed-within-budget, and over-budget inherited pipe—use the existing finite
+  30-second production default. The production implementation/default and
+  native Git fixture remain unchanged.
 
 ## Key files
 
@@ -45,6 +59,8 @@ green.
 - `scripts/test-scan-private-markers.ps1` — deterministic regression owner.
 - `docs/worktree-content-drift-hardening*.md` — Class M design and acceptance
   criteria in English and Japanese.
+- `docs/windows-gate-drain-hardening*.md` — current Class M design, evidence,
+  and acceptance criteria.
 - `README.md` and `CHANGELOG.md` — public behavior and durable history.
 
 ## Recent decisions
@@ -63,6 +79,11 @@ green.
   non-reflective reason.
 - Describe this as a bounded two-observation guarantee, not filesystem
   compare-and-swap after the final read.
+- Pass a finite Windows gate output-drain budget in the trusted payload. Never
+  exceed the parent's drain budget or remove the exit `125` fail-closed path.
+- Treat the hosted failure's exact field-level cause as unconfirmed because the
+  old assertion emitted no bounded-result metadata. Prove the corrected timing
+  boundary with deterministic synthetic fixtures.
 
 ## Commands already run
 
@@ -75,11 +96,24 @@ green.
   passed for all eight changed files.
 - PowerShell 7 full scanner self-test — exit `0`, final marker
   `Private marker scan self-test passed.`, stderr zero bytes.
+- Exact merged-main diagnostic PowerShell 7 full self-test — exit `0`, final
+  marker present, stderr zero bytes, and no matching process remained.
+- Targeted Windows gate RED — exit `1`; invalid payloads started their child
+  and the 300 ms holder returned `125`.
+- Targeted Windows gate GREEN on PowerShell 7 and Windows PowerShell 5.1 —
+  both exit `0`, final marker present, stderr zero bytes, and no scanner/gate
+  process remained.
+- Focused-review attempts under later host load then timed out the first raw
+  probe at 5 seconds (12/12 and 8/8 exact) and 10 seconds (0/12 and 0/8).
+  Both stopped the tree and drained streams. Attempt three uses the existing
+  30-second production default as the finite test-only budget.
 
 ## Known issues
 
-- Hosted cross-platform validation for this branch remains pending until the
-  pull request runs.
+- Merged-main run `30341569740` remains red until the bounded Windows gate
+  follow-up is implemented and validated.
+- Final full scanner self-tests and hosted validation for this branch remain
+  pending.
 
 ## Do not re-read
 
@@ -92,5 +126,8 @@ green.
 
 ## Next step
 
-1. Freeze the exact staged tree and patch for independent review.
-2. Push, run hosted validation, merge, and revalidate `main`.
+1. Run non-scanner static/security gates and freeze the exact staged tree.
+2. Request independent P0–P3 review of the freeze.
+3. After the shared scanner slot is available, run final PowerShell 7/5.1 full
+   self-tests and repository scans.
+4. Push, validate the hosted matrix, merge, and revalidate `main`.

@@ -1,6 +1,10 @@
 [CmdletBinding()]
 param(
-    [string]$Path = ''
+    [string]$Path = '',
+
+    # Keep the Windows launch-gate timing regressions runnable without entering
+    # the repository fixture matrix. The normal full suite still executes them.
+    [switch]$WindowsGateDrainOnly
 )
 
 Set-StrictMode -Version Latest
@@ -312,6 +316,485 @@ function Test-BoundedResultHealthy {
         -not $Result.OutputLimitExceeded -and
         $Result.TreeStopped -and
         $Result.StreamsDrained
+}
+
+function Test-PrivateMarkerByteSequenceEqual {
+    param(
+        [AllowNull()]
+        [byte[]]$Actual,
+
+        [AllowNull()]
+        [byte[]]$Expected
+    )
+
+    if ($null -eq $Actual -or $null -eq $Expected) {
+        return $null -eq $Actual -and $null -eq $Expected
+    }
+    if ($Actual.Length -ne $Expected.Length) {
+        return $false
+    }
+
+    # Base64 is used only as an in-memory comparison. Failure messages expose
+    # lengths and equality booleans, never the synthetic or captured bytes.
+    return [Convert]::ToBase64String($Actual) -eq
+        [Convert]::ToBase64String($Expected)
+}
+
+function Get-PrivateMarkerBoundedResultDiagnostic {
+    param(
+        [AllowNull()]
+        [object]$Result,
+
+        [Parameter(Mandatory = $true)]
+        [byte[]]$ExpectedStdout,
+
+        [Parameter(Mandatory = $true)]
+        [byte[]]$ExpectedStderr
+    )
+
+    if ($null -eq $Result) {
+        return 'result=null'
+    }
+
+    $stdoutExact = Test-PrivateMarkerByteSequenceEqual `
+        -Actual $Result.StdoutBytes `
+        -Expected $ExpectedStdout
+    $stderrExact = Test-PrivateMarkerByteSequenceEqual `
+        -Actual $Result.StderrBytes `
+        -Expected $ExpectedStderr
+    return @(
+        "exit=$($Result.ExitCode)"
+        "timeout=$($Result.TimedOut)"
+        "limit=$($Result.OutputLimitExceeded)"
+        "tree=$($Result.TreeStopped)"
+        "streams=$($Result.StreamsDrained)"
+        "stdoutLength=$($Result.StdoutBytes.Length)/$($ExpectedStdout.Length)"
+        "stdoutExact=$stdoutExact"
+        "stderrLength=$($Result.StderrBytes.Length)/$($ExpectedStderr.Length)"
+        "stderrExact=$stderrExact"
+    ) -join ', '
+}
+
+function Test-PrivateMarkerProcessAbsent {
+    param(
+        [Parameter(Mandatory = $true)]
+        [int]$ProcessId,
+
+        [int]$WaitMilliseconds = 1000
+    )
+
+    $attempts = [Math]::Max(
+        1,
+        [int][Math]::Ceiling($WaitMilliseconds / 20.0)
+    )
+    for ($attempt = 0; $attempt -lt $attempts; $attempt++) {
+        if ($null -eq (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)) {
+            return $true
+        }
+        Start-Sleep -Milliseconds 20
+    }
+    return $null -eq (
+        Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+    )
+}
+
+function Assert-WindowsGatePayloadBudgetRegressions {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$TempRoot
+    )
+
+    if (-not $runtimeIsWindows) {
+        return
+    }
+
+    # The payload is an internal trust boundary. A missing, coerced, fractional,
+    # or out-of-range budget must fail before the requested child can run.
+    $cases = @(
+        [pscustomobject]@{
+            Name = 'missing'
+            IncludeBudget = $false
+            Value = $null
+        },
+        [pscustomobject]@{
+            Name = 'string'
+            IncludeBudget = $true
+            Value = '1000'
+        },
+        [pscustomobject]@{
+            Name = 'fractional'
+            IncludeBudget = $true
+            Value = 1000.5
+        },
+        [pscustomobject]@{
+            Name = 'zero'
+            IncludeBudget = $true
+            Value = 0
+        },
+        [pscustomobject]@{
+            Name = 'too-large'
+            IncludeBudget = $true
+            Value = 60001
+        }
+    )
+
+    foreach ($case in $cases) {
+        $sentinelPath = Join-Path `
+            $TempRoot `
+            "invalid-gate-budget-$($case.Name)-started"
+        $pidPath = Join-Path `
+            $TempRoot `
+            "invalid-gate-budget-$($case.Name)-pid"
+        $escapedSentinelPath = $sentinelPath.Replace("'", "''")
+        $escapedPidPath = $pidPath.Replace("'", "''")
+        $targetScript = @"
+[IO.File]::WriteAllText(
+    '$escapedSentinelPath',
+    'started',
+    [Text.UTF8Encoding]::new(`$false)
+)
+[IO.File]::WriteAllText(
+    '$escapedPidPath',
+    [string]`$PID,
+    [Text.UTF8Encoding]::new(`$false)
+)
+Start-Sleep -Seconds 5
+"@
+        $targetEncoded = [Convert]::ToBase64String(
+            [Text.Encoding]::Unicode.GetBytes($targetScript)
+        )
+        $targetArguments = @('-NoProfile')
+        if ($PSVersionTable.PSVersion.Major -le 5) {
+            $targetArguments += @('-ExecutionPolicy', 'Bypass')
+        }
+        $targetArguments += @('-EncodedCommand', $targetEncoded)
+        $payload = [ordered]@{
+            FileName = $currentPowerShellExecutable
+            Arguments = @($targetArguments)
+            LegacyArguments = (
+                @($targetArguments) | ForEach-Object {
+                    ConvertTo-PrivateMarkerProcessArgument -Argument $_
+                }
+            ) -join ' '
+            RedirectStandardInput = $false
+        }
+        if ($case.IncludeBudget) {
+            $payload.OutputDrainTimeoutMilliseconds = $case.Value
+        }
+        $payloadJson = $payload | ConvertTo-Json -Compress -Depth 4
+        $payloadBase64 = [Convert]::ToBase64String(
+            [Text.Encoding]::UTF8.GetBytes($payloadJson)
+        )
+
+        $gateName = 'Local\AgentHandoffDocs-Test-' +
+            [Guid]::NewGuid().ToString('N')
+        $gate = [Threading.EventWaitHandle]::new(
+            $true,
+            [Threading.EventResetMode]::ManualReset,
+            $gateName
+        )
+        $observedExpectedFailure = $false
+        try {
+            try {
+                [void](Invoke-PrivateMarkerWindowsGateProxy `
+                    -GateName $gateName `
+                    -PayloadBase64 $payloadBase64)
+            }
+            catch {
+                $observedExpectedFailure =
+                    $_.Exception.Message -eq
+                        'The Windows gate output drain budget is invalid.'
+            }
+        }
+        finally {
+            $gate.Dispose()
+        }
+
+        if (-not $observedExpectedFailure) {
+            Add-Failure "Expected the $($case.Name) Windows gate drain budget to fail with the fixed diagnostic."
+        }
+        if (Test-Path -LiteralPath $sentinelPath -PathType Leaf) {
+            Add-Failure "Expected the $($case.Name) invalid gate budget to fail before starting its requested child."
+        }
+        if (Test-Path -LiteralPath $pidPath -PathType Leaf) {
+            $invalidPidText = [IO.File]::ReadAllText($pidPath).Trim()
+            $invalidPid = 0
+            if ([int]::TryParse($invalidPidText, [ref]$invalidPid) -and
+                -not (Test-PrivateMarkerProcessAbsent `
+                    -ProcessId $invalidPid `
+                    -WaitMilliseconds 1000)) {
+                Add-Failure "Expected the $($case.Name) invalid-budget child PID to be absent after fail-closed cleanup."
+            }
+        }
+    }
+}
+
+function Assert-WindowsGateDrainBudgetRegressions {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$TempRoot
+    )
+
+    if (-not $runtimeIsWindows) {
+        return
+    }
+
+    $withinBudgetMilliseconds = 2000
+    $parentDrainMilliseconds = 2500
+    $requestedOverBudgetMilliseconds = 5000
+    $overBudgetParentDrainMilliseconds = 2000
+    $effectiveOverBudgetMilliseconds = [Math]::Min(
+        $requestedOverBudgetMilliseconds,
+        $overBudgetParentDrainMilliseconds
+    )
+    $expectedStdout = [byte[]]@(0, 128, 255, 42, 13, 10)
+    $expectedStderr = [byte[]]@(254, 127, 1, 0)
+    $escapedPowerShellExecutable =
+        $currentPowerShellExecutable.Replace("'", "''")
+
+    # A descendant keeps both target-side pipes open beyond the former 100 ms
+    # window, then exits normally inside the explicit gate budget.
+    $delayedSentinel = Join-Path $TempRoot 'gate-drain-delayed-complete'
+    $delayedPidPath = Join-Path $TempRoot 'gate-drain-delayed-pid'
+    $escapedDelayedSentinel = $delayedSentinel.Replace("'", "''")
+    $escapedDelayedPidPath = $delayedPidPath.Replace("'", "''")
+    $delayedDescendantScript = @"
+Start-Sleep -Milliseconds 300
+[IO.File]::WriteAllText(
+    '$escapedDelayedSentinel',
+    'complete',
+    [Text.UTF8Encoding]::new(`$false)
+)
+"@
+    $delayedDescendantPath = Join-Path `
+        $TempRoot `
+        'gate-drain-delayed-descendant.ps1'
+    [IO.File]::WriteAllText(
+        $delayedDescendantPath,
+        $delayedDescendantScript,
+        [Text.UTF8Encoding]::new($false)
+    )
+    $delayedDescendantArguments = @('-NoProfile')
+    if ($PSVersionTable.PSVersion.Major -le 5) {
+        $delayedDescendantArguments += @('-ExecutionPolicy', 'Bypass')
+    }
+    $delayedDescendantArguments += @('-File', $delayedDescendantPath)
+    $delayedDescendantLegacyArguments = (
+        @($delayedDescendantArguments) | ForEach-Object {
+            ConvertTo-PrivateMarkerProcessArgument -Argument $_
+        }
+    ) -join ' '
+    $escapedDelayedDescendantLegacyArguments =
+        $delayedDescendantLegacyArguments.Replace("'", "''")
+    $delayedParentScript = @"
+`$startInfo = New-Object System.Diagnostics.ProcessStartInfo
+`$startInfo.FileName = '$escapedPowerShellExecutable'
+`$startInfo.Arguments = '$escapedDelayedDescendantLegacyArguments'
+`$startInfo.UseShellExecute = `$false
+`$startInfo.CreateNoWindow = `$true
+`$descendant = [Diagnostics.Process]::Start(`$startInfo)
+[IO.File]::WriteAllText(
+    '$escapedDelayedPidPath',
+    [string]`$descendant.Id,
+    [Text.UTF8Encoding]::new(`$false)
+)
+`$stdoutBytes = [byte[]]@(0, 128, 255, 42, 13, 10)
+`$stdout = [Console]::OpenStandardOutput()
+`$stdout.Write(`$stdoutBytes, 0, `$stdoutBytes.Length)
+`$stdout.Flush()
+`$stderrBytes = [byte[]]@(254, 127, 1, 0)
+`$stderr = [Console]::OpenStandardError()
+`$stderr.Write(`$stderrBytes, 0, `$stderrBytes.Length)
+`$stderr.Flush()
+`$descendant.Dispose()
+exit 37
+"@
+    $delayedParentPath = Join-Path `
+        $TempRoot `
+        'gate-drain-delayed-parent.ps1'
+    [IO.File]::WriteAllText(
+        $delayedParentPath,
+        $delayedParentScript,
+        [Text.UTF8Encoding]::new($false)
+    )
+    $delayedArguments = @('-NoProfile')
+    if ($PSVersionTable.PSVersion.Major -le 5) {
+        $delayedArguments += @('-ExecutionPolicy', 'Bypass')
+    }
+    $delayedArguments += @('-File', $delayedParentPath)
+    $delayedTimer = [Diagnostics.Stopwatch]::StartNew()
+    $delayedResult = Invoke-PrivateMarkerBoundedProcess `
+        -FileName $currentPowerShellExecutable `
+        -Arguments $delayedArguments `
+        -IsolationRoot (Join-Path $TempRoot 'gate-drain-delayed-isolation') `
+        -TimeoutMilliseconds 30000 `
+        -DrainTimeoutMilliseconds $parentDrainMilliseconds `
+        -WindowsGateOutputDrainTimeoutMilliseconds $withinBudgetMilliseconds `
+        -MaxStdoutBytes 64 `
+        -MaxStderrBytes 64
+    $delayedTimer.Stop()
+    $delayedDiagnostic = Get-PrivateMarkerBoundedResultDiagnostic `
+        -Result $delayedResult `
+        -ExpectedStdout $expectedStdout `
+        -ExpectedStderr $expectedStderr
+    if (-not (Test-BoundedResultHealthy -Result $delayedResult) -or
+        $delayedResult.ExitCode -ne 37 -or
+        -not (Test-PrivateMarkerByteSequenceEqual `
+            -Actual $delayedResult.StdoutBytes `
+            -Expected $expectedStdout) -or
+        -not (Test-PrivateMarkerByteSequenceEqual `
+            -Actual $delayedResult.StderrBytes `
+            -Expected $expectedStderr)) {
+        Add-Failure "Expected the within-budget delayed gate drain to preserve exact transport ($delayedDiagnostic)."
+    }
+    if ($delayedTimer.ElapsedMilliseconds -lt 200 -or
+        $delayedTimer.ElapsedMilliseconds -ge 30000) {
+        Add-Failure "Expected the within-budget delayed drain wall clock to remain between 200 ms and 30000 ms; observed $($delayedTimer.ElapsedMilliseconds) ms."
+    }
+    if (-not (Test-Path -LiteralPath $delayedSentinel -PathType Leaf)) {
+        Add-Failure 'Expected the within-budget pipe holder to complete before the gate returned.'
+    }
+    if (-not (Test-Path -LiteralPath $delayedPidPath -PathType Leaf)) {
+        Add-Failure 'Expected the within-budget pipe holder to publish its PID.'
+    }
+    else {
+        $delayedPidText = [IO.File]::ReadAllText($delayedPidPath).Trim()
+        $delayedPid = 0
+        if (-not [int]::TryParse($delayedPidText, [ref]$delayedPid) -or
+            -not (Test-PrivateMarkerProcessAbsent `
+                -ProcessId $delayedPid `
+                -WaitMilliseconds 1000)) {
+            Add-Failure 'Expected zero remaining within-budget pipe-holder processes.'
+        }
+    }
+
+    # A second descendant requests a 5-second gate drain but gives the parent
+    # only 2 seconds. The effective min(parent, requested) budget must return 125,
+    # after which the parent closes the owned Job before the sentinel can run.
+    $overBudgetSentinel = Join-Path $TempRoot 'gate-drain-over-budget-survived'
+    $overBudgetPidPath = Join-Path $TempRoot 'gate-drain-over-budget-pid'
+    $escapedOverBudgetSentinel = $overBudgetSentinel.Replace("'", "''")
+    $escapedOverBudgetPidPath = $overBudgetPidPath.Replace("'", "''")
+    $overBudgetDescendantScript = @"
+Start-Sleep -Milliseconds 4000
+[IO.File]::WriteAllText(
+    '$escapedOverBudgetSentinel',
+    'survived',
+    [Text.UTF8Encoding]::new(`$false)
+)
+"@
+    $overBudgetDescendantPath = Join-Path `
+        $TempRoot `
+        'gate-drain-over-budget-descendant.ps1'
+    [IO.File]::WriteAllText(
+        $overBudgetDescendantPath,
+        $overBudgetDescendantScript,
+        [Text.UTF8Encoding]::new($false)
+    )
+    $overBudgetDescendantArguments = @('-NoProfile')
+    if ($PSVersionTable.PSVersion.Major -le 5) {
+        $overBudgetDescendantArguments += @('-ExecutionPolicy', 'Bypass')
+    }
+    $overBudgetDescendantArguments += @(
+        '-File',
+        $overBudgetDescendantPath
+    )
+    $overBudgetDescendantLegacyArguments = (
+        @($overBudgetDescendantArguments) | ForEach-Object {
+            ConvertTo-PrivateMarkerProcessArgument -Argument $_
+        }
+    ) -join ' '
+    $escapedOverBudgetDescendantLegacyArguments =
+        $overBudgetDescendantLegacyArguments.Replace("'", "''")
+    $overBudgetParentScript = @"
+`$startInfo = New-Object System.Diagnostics.ProcessStartInfo
+`$startInfo.FileName = '$escapedPowerShellExecutable'
+`$startInfo.Arguments = '$escapedOverBudgetDescendantLegacyArguments'
+`$startInfo.UseShellExecute = `$false
+`$startInfo.CreateNoWindow = `$true
+`$descendant = [Diagnostics.Process]::Start(`$startInfo)
+[IO.File]::WriteAllText(
+    '$escapedOverBudgetPidPath',
+    [string]`$descendant.Id,
+    [Text.UTF8Encoding]::new(`$false)
+)
+`$stdoutBytes = [byte[]]@(0, 128, 255, 42, 13, 10)
+`$stdout = [Console]::OpenStandardOutput()
+`$stdout.Write(`$stdoutBytes, 0, `$stdoutBytes.Length)
+`$stdout.Flush()
+`$stderrBytes = [byte[]]@(254, 127, 1, 0)
+`$stderr = [Console]::OpenStandardError()
+`$stderr.Write(`$stderrBytes, 0, `$stderrBytes.Length)
+`$stderr.Flush()
+`$descendant.Dispose()
+exit 41
+"@
+    $overBudgetParentPath = Join-Path `
+        $TempRoot `
+        'gate-drain-over-budget-parent.ps1'
+    [IO.File]::WriteAllText(
+        $overBudgetParentPath,
+        $overBudgetParentScript,
+        [Text.UTF8Encoding]::new($false)
+    )
+    $overBudgetArguments = @('-NoProfile')
+    if ($PSVersionTable.PSVersion.Major -le 5) {
+        $overBudgetArguments += @('-ExecutionPolicy', 'Bypass')
+    }
+    $overBudgetArguments += @('-File', $overBudgetParentPath)
+    $overBudgetTimer = [Diagnostics.Stopwatch]::StartNew()
+    $overBudgetResult = Invoke-PrivateMarkerBoundedProcess `
+        -FileName $currentPowerShellExecutable `
+        -Arguments $overBudgetArguments `
+        -IsolationRoot (Join-Path $TempRoot 'gate-drain-over-budget-isolation') `
+        -TimeoutMilliseconds 30000 `
+        -DrainTimeoutMilliseconds $overBudgetParentDrainMilliseconds `
+        -WindowsGateOutputDrainTimeoutMilliseconds `
+            $requestedOverBudgetMilliseconds `
+        -MaxStdoutBytes 64 `
+        -MaxStderrBytes 64
+    $overBudgetTimer.Stop()
+    $overBudgetDiagnostic = Get-PrivateMarkerBoundedResultDiagnostic `
+        -Result $overBudgetResult `
+        -ExpectedStdout $expectedStdout `
+        -ExpectedStderr $expectedStderr
+    if (-not (Test-BoundedResultHealthy -Result $overBudgetResult) -or
+        $overBudgetResult.ExitCode -ne 125 -or
+        -not (Test-PrivateMarkerByteSequenceEqual `
+            -Actual $overBudgetResult.StdoutBytes `
+            -Expected $expectedStdout) -or
+        -not (Test-PrivateMarkerByteSequenceEqual `
+            -Actual $overBudgetResult.StderrBytes `
+            -Expected $expectedStderr)) {
+        Add-Failure "Expected the over-budget inherited pipe to return 125 with bounded exact prefixes ($overBudgetDiagnostic)."
+    }
+    $minimumOverBudgetElapsedMilliseconds =
+        $effectiveOverBudgetMilliseconds - 250
+    if ($overBudgetTimer.ElapsedMilliseconds -lt
+            $minimumOverBudgetElapsedMilliseconds -or
+        $overBudgetTimer.ElapsedMilliseconds -ge 30000) {
+        Add-Failure "Expected the over-budget drain wall clock to remain between $minimumOverBudgetElapsedMilliseconds ms and 30000 ms; observed $($overBudgetTimer.ElapsedMilliseconds) ms."
+    }
+    if (Test-Path -LiteralPath $overBudgetSentinel -PathType Leaf) {
+        Add-Failure 'Expected owned-Job cleanup to stop the over-budget pipe holder before its delayed sentinel.'
+    }
+    if (-not (Test-Path -LiteralPath $overBudgetPidPath -PathType Leaf)) {
+        Add-Failure 'Expected the over-budget pipe holder to publish its PID.'
+    }
+    else {
+        $overBudgetPidText =
+            [IO.File]::ReadAllText($overBudgetPidPath).Trim()
+        $overBudgetPid = 0
+        if (-not [int]::TryParse(
+                $overBudgetPidText,
+                [ref]$overBudgetPid
+            ) -or
+            -not (Test-PrivateMarkerProcessAbsent `
+                -ProcessId $overBudgetPid `
+                -WaitMilliseconds 1000)) {
+            Add-Failure 'Expected zero remaining over-budget pipe-holder processes.'
+        }
+    }
 }
 
 function Test-PrivateMarkerCommandIsDeferredDefinition {
@@ -804,19 +1287,34 @@ exit 37
         -Arguments $rawTransportArguments `
         -IsolationRoot (Join-Path $tempRoot 'raw-transport-isolation') `
         -StandardInputBytes $rawTransportInput `
-        -TimeoutMilliseconds 5000 `
+        -TimeoutMilliseconds 30000 `
         -MaxStdoutBytes 64 `
         -MaxStderrBytes 64
     $expectedRawStderr = [byte[]]@(255, 254, 128, 127, 13, 10, 1, 0)
+    $rawTransportDiagnostic = Get-PrivateMarkerBoundedResultDiagnostic `
+        -Result $rawTransportResult `
+        -ExpectedStdout $rawTransportInput `
+        -ExpectedStderr $expectedRawStderr
     if (-not (Test-BoundedResultHealthy -Result $rawTransportResult) -or
         $rawTransportResult.ExitCode -ne 37 -or
-        [Convert]::ToBase64String($rawTransportResult.StdoutBytes) -ne
-            [Convert]::ToBase64String($rawTransportInput) -or
-        [Convert]::ToBase64String($rawTransportResult.StderrBytes) -ne
-            [Convert]::ToBase64String($expectedRawStderr)) {
-        Add-Failure 'Expected the containment gate to preserve binary stdin/stdout/stderr, EOF, and exit code exactly.'
+        -not (Test-PrivateMarkerByteSequenceEqual `
+            -Actual $rawTransportResult.StdoutBytes `
+            -Expected $rawTransportInput) -or
+        -not (Test-PrivateMarkerByteSequenceEqual `
+            -Actual $rawTransportResult.StderrBytes `
+            -Expected $expectedRawStderr)) {
+        Add-Failure "Expected the containment gate to preserve binary stdin/stdout/stderr, EOF, and exit code exactly ($rawTransportDiagnostic)."
     }
 
+    if ($runtimeIsWindows) {
+        Assert-WindowsGatePayloadBudgetRegressions -TempRoot $tempRoot
+        Assert-WindowsGateDrainBudgetRegressions -TempRoot $tempRoot
+    }
+    elseif ($WindowsGateDrainOnly) {
+        Add-Failure 'The Windows gate drain-only regression requires Windows.'
+    }
+
+    if (-not $WindowsGateDrainOnly) {
     # PowerShell accepts a UTF-8 preamble at its own input boundary, so the
     # synthetic echo above cannot expose Windows PowerShell 5.1 adding that
     # preamble before raw BaseStream writes. Exercise native Git at the same
@@ -3351,6 +3849,7 @@ esac
                 }
             }
         }
+    }
     }
 }
 finally {
