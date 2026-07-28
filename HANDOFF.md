@@ -16,27 +16,35 @@ test, and CI state outranks this summary.
 
 ## Current goal and success metric
 
-Keep the merged synthetic-example contracts healthy and begin the next work
-unit from current observable repository state. Success means `main` stays
-clean, hosted validation remains green, and intentional example structure
-changes update the reviewed contract in the same change.
+Close the tracked-worktree content-drift gap without weakening the scanner's
+existing fail-closed boundaries. Success means a deterministic same-length
+atomic replacement fails with the fixed non-reflective reason, both scan modes
+reuse the existing safe traversal, and all local and hosted validation remains
+green.
 
 ## Current position
 
-- Pull request #9 merged as `f1e6b05`; local and remote `main` are equal.
-- Pull request run `30236574907` and merged-main run `30236893869` each passed
-  Windows, Ubuntu, macOS 15, and Windows PowerShell 5.1.
+- Local and remote `main` are equal at `a005c2b`.
+- Merged-main run `30237752341` passed Windows, Ubuntu, macOS 15, and Windows
+  PowerShell 5.1.
 - Open pull requests and issues are both zero.
-- Readiness now pins the reviewed title and ordered level-two section schema
-  of all three public synthetic examples.
+- The baseline disposable scanner-copy reproduction proved that a same-length
+  tracked worktree replacement after snapshot capture passed from stale bytes,
+  while a direct control scan detected the replacement.
+- Branch `fix/worktree-content-drift` now retains every regular-worktree
+  snapshot and re-reads it immediately before reporting. Targeted Git and
+  fallback regressions pass with the fixed non-reflective reason.
 
 ## Key files
 
 - `SKILL.md` — canonical English source included in the digest.
 - `docs/SKILL.ja.md` — Japanese complete version and acknowledgement marker.
 - `scripts/validate-oss-readiness.ps1` — strict byte/digest contract.
-- `examples/*.md` — public synthetic guidance whose reviewed structure is the
-  current validation target.
+- `scripts/scan-private-markers.ps1` — snapshot capture and final integrity
+  reporting boundary.
+- `scripts/test-scan-private-markers.ps1` — deterministic regression owner.
+- `docs/worktree-content-drift-hardening*.md` — Class M design and acceptance
+  criteria in English and Japanese.
 - `README.md` and `CHANGELOG.md` — public behavior and durable history.
 
 ## Recent decisions
@@ -49,21 +57,29 @@ changes update the reviewed contract in the same change.
   verify translation meaning.
 - Reuse the exact reviewed Markdown title/section parser already exercised by
   19 fail-closed template mutations; do not add a YAML or Markdown dependency.
+- Retain verification metadata only for regular-worktree snapshots. Re-read
+  them through the existing safe traversal immediately before final reporting,
+  compare bytes exactly, and map all final-boundary failures to one
+  non-reflective reason.
+- Describe this as a bounded two-observation guarantee, not filesystem
+  compare-and-swap after the final read.
 
 ## Commands already run
 
-- `git fetch --prune origin` — succeeded; local and remote main are equal.
-- `gh pr list` / `gh issue list` — no open work.
-- Pull request #9 and merged-main hosted validation — all four jobs passed.
-- PowerShell 7/5.1 readiness and full scanner self-tests — passed.
-- PowerShell 7/5.1 repository scans — passed.
-- Gitleaks history/worktree and Semgrep `p/default` — zero findings.
-- Strict UTF-8/BOM/CR/NUL/TAB/form-feed and whitespace checks — passed.
-- Final independent review — P0=0, P1=0, P2=0, P3=0.
+- Targeted same-length atomic replacement — Git and fallback modes both exit
+  `2`; fixed reason present; path and sentinel absent.
+- PowerShell 7/5.1 readiness and repository scans — passed.
+- Gitleaks 8.30.1 directory/history scans and Semgrep 1.165.0 `p/default` —
+  zero findings.
+- Strict UTF-8/BOM/CR/NUL/TAB/form-feed, final-LF, and whitespace checks —
+  passed for all eight changed files.
+- PowerShell 7 full scanner self-test — exit `0`, final marker
+  `Private marker scan self-test passed.`, stderr zero bytes.
 
 ## Known issues
 
-- None currently known.
+- Hosted cross-platform validation for this branch remains pending until the
+  pull request runs.
 
 ## Do not re-read
 
@@ -76,5 +92,5 @@ changes update the reviewed contract in the same change.
 
 ## Next step
 
-1. Reconcile current issues, pull requests, CI, and observable `main`, then
-   select the highest-value safe unblocked task.
+1. Freeze the exact staged tree and patch for independent review.
+2. Push, run hosted validation, merge, and revalidate `main`.

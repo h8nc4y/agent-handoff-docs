@@ -3,11 +3,12 @@
 ## Canonical scope of this document
 
 This document is the source of truth for the repository's CI dependency-pin
-policy and bounded child-process environment boundary. Implementation details
-live in the named scripts; current work status lives in `HANDOFF.md`; release
-history lives in `CHANGELOG.md`. If this document conflicts with executable
-tests or the merged default branch, the executable repository state wins and
-this document must be corrected.
+policy, bounded child-process environment boundary, and private-marker
+snapshot-integrity boundary. Implementation details live in the named scripts;
+current work status lives in `HANDOFF.md`; release history lives in
+`CHANGELOG.md`. If this document conflicts with executable tests or the merged
+default branch, the executable repository state wins and this document must be
+corrected.
 
 ## Objective
 
@@ -18,7 +19,10 @@ keep the bounded POSIX cleanup contract portable:
 2. an unrelated parent-process environment variable reaching a scanner or Git
    child merely because `ProcessStartInfo` cloned the parent environment; and
 3. a platform-specific process-session path silently working on Linux while
-   failing on macOS, where an external `setsid` executable is commonly absent.
+   failing on macOS, where an external `setsid` executable is commonly absent;
+   and
+4. a tracked regular worktree file changing after its bytes were captured but
+   before a successful private-marker report is emitted.
 
 ## Threat model and invariants
 
@@ -55,6 +59,19 @@ keep the bounded POSIX cleanup contract portable:
   is requested because the exited parent left a descendant-held pipe, cleanup
   stops and drains the process group, and the delayed grandchild sentinel does
   not appear.
+- Every tracked regular worktree snapshot retains enough non-sensitive
+  verification data to re-open the same relative path through the scanner's
+  fail-closed path traversal. Immediately before final reporting, the scanner
+  re-reads each retained path and compares its bytes exactly with the initial
+  snapshot.
+- A missing path, reparse path, type change, oversized file, read failure, or
+  byte mismatch during final worktree verification fails with the fixed,
+  non-reflective reason `integrity: worktree-content-drift`. The reason never
+  includes a path or file content.
+- This is a bounded two-observation contract: the final observed worktree
+  bytes must exactly equal the initial snapshot. It is not a filesystem
+  compare-and-swap guarantee and does not claim to detect a change after the
+  final re-read.
 
 ## Implementation ownership
 
@@ -65,8 +82,11 @@ keep the bounded POSIX cleanup contract portable:
   policy regressions.
 - `scripts/private-marker-process.ps1`: minimum child environment builder and
   Git-specific safety controls.
+- `scripts/scan-private-markers.ps1`: fail-closed tracked-worktree traversal,
+  immutable scan snapshots, and final byte-for-byte snapshot verification.
 - `scripts/test-scan-private-markers.ps1`: cross-platform positive and negative
-  environment fixtures, parent-state checks, and scanner regressions.
+  environment fixtures, parent-state checks, and deterministic scanner
+  regressions, including same-length atomic worktree replacement.
 
 ## Acceptance criteria and test plan
 
@@ -85,6 +105,7 @@ scan, and reported no `git-root-mismatch`.
 | Required OS/runtime, isolation, PATH, locale, and Git controls remain usable | cross-platform positive environment probe and full scanner self-test | verified on hosted Windows, Ubuntu, and macOS |
 | Windows PowerShell 5.1 and PowerShell 7 behavior remains compatible | local full PS5 validation and repository scan, hosted PS5 readiness/whitespace smoke, and hosted Windows/Ubuntu/macOS PS7 full self-test plus repository scan | verified locally and in the evidence snapshot |
 | POSIX behavior, including the native session fallback, remains compatible | full self-test on Ubuntu and macOS; the fixture forces `libc` `setsid(2)` and rejects nonzero or unconfirmed-spawn evidence | verified on hosted Ubuntu and macOS |
+| A same-length tracked-worktree replacement cannot produce a stale success report | deterministic disposable-scanner-copy regression pauses after snapshot capture, atomically replaces the worktree file, and requires `integrity: worktree-content-drift` | verified locally on PowerShell 7; hosted cross-platform evidence pending |
 | Repository security scan and whitespace checks pass | private-marker scan, Semgrep, Gitleaks, and `git diff --check` | private-marker and whitespace checks verified locally and in the evidence snapshot; Semgrep and Gitleaks verified locally |
 
 ## Non-goals
@@ -93,4 +114,6 @@ scan, and reported no `git-root-mismatch`.
   labels rather than repository-controlled commit SHAs.
 - Passing secrets, OAuth credentials, production data, or cloud credentials to
   validation children.
+- Claiming a filesystem compare-and-swap guarantee after the final worktree
+  re-read has completed.
 - Deploying or publishing any artifact.

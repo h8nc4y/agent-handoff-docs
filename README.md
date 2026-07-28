@@ -142,7 +142,11 @@ SKILL.md                 The skill (English, canonical)
 HANDOFF.md               Current repository work state
 docs/SKILL.ja.md         Japanese full version
 docs/security-boundary-contract.md
-                         CI and child-process security invariants
+                         CI, child-process, and scanner integrity invariants
+docs/worktree-content-drift-hardening.md
+                         Class M scanner hardening design (English)
+docs/worktree-content-drift-hardening.ja.md
+                         Class M scanner hardening design (Japanese)
 templates/en/            English templates (placeholders only)
   START_HERE.md          Kickoff file
   REQUIREMENTS.md        Requirements with acceptance-criteria table
@@ -329,6 +333,14 @@ added. The scanner-entrypoint fixture has a narrow explicit bridge for hostile
 credentials, loader variables, and unrelated overrides remain absent. The
 cross-platform self-test covers required and forbidden variables on both
 Windows and POSIX.
+
+The private-marker scanner retains every regular-worktree snapshot and safely
+re-reads it immediately before reporting. Missing, reparse, type, size, read,
+or byte drift at that final boundary fails with the fixed non-reflective
+`integrity: worktree-content-drift` reason. This is a bounded two-observation
+check, not a filesystem compare-and-swap guarantee after the final re-read.
+See the [English design](docs/worktree-content-drift-hardening.md) and
+[Japanese design](docs/worktree-content-drift-hardening.ja.md).
 
 Also run Git whitespace checks on your working changes before publishing:
 
