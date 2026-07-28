@@ -68,6 +68,9 @@ same range before constructing the requested child.
 - A synthetic descendant holds the pipes beyond the gate budget; the gate
   returns `125`, the owned Job stops the descendant, and no delayed sentinel is
   written.
+- The existing immediate-spawn containment fixture pins its gate drain to
+  250 ms. Its 1-second sentinel is therefore strictly over-budget instead of
+  racing the 1-second production default.
 - Timeout, output-limit, tree-stop, stream-drain, and total bounded-return
   contracts remain intact.
 - Failures report only bounded result flags, exit code, lengths, and equality

@@ -62,6 +62,9 @@ requested child を構築する前に、同じ範囲の raw JSON integer だけ�
   descendant では、正確な bytes と requested child の exit code を返す。
 - pipe を gate budget より長く保持する synthetic descendant では exit
   `125` を返し、owned Job が descendant を停止し、遅延 sentinel を書かない。
+- 既存の immediate-spawn containment fixture は gate drain を 250 ms に固定
+  する。1秒後の sentinel を production default と同じ期限で競合させず、
+  明確に over-budget の証拠として維持する。
 - timeout、output limit、tree stop、stream drain、total bounded return の
   契約を維持する。
 - 失敗診断には bounded result flags、exit code、length、equality のみを出し、

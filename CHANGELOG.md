@@ -41,7 +41,9 @@ The format loosely follows Keep a Changelog conventions.
   preserved every expected byte but reported `TimedOut=True`, while 10 seconds
   timed out before either stream produced a byte. The production
   implementation/default, native Git fixture, Job cleanup, and output limits
-  remain unchanged.
+  remain unchanged. The immediate-spawn containment fixture pins a 250 ms gate
+  drain so its 1-second sentinel remains strictly over-budget instead of racing
+  that new production default.
 - Revalidate every retained regular-worktree snapshot immediately before the
   private-marker scanner reports. The final fail-closed pass reuses the safe
   path traversal and compares bytes exactly, so a same-length atomic

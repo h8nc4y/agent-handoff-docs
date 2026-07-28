@@ -48,6 +48,12 @@ validation is green.
   delayed-within-budget, and over-budget inherited pipe—use the existing finite
   30-second production default. The production implementation/default and
   native Git fixture remain unchanged.
+- Pull request #12 hosted run `30348613094` passed Ubuntu, Windows PowerShell
+  5.1, and macOS. Windows PowerShell 7 passed the former raw-transport failure
+  point, then failed the existing immediate-spawn sentinel assertion because
+  its 1-second sentinel raced the newly equal 1-second production gate budget.
+  The fixture now pins a 250 ms gate budget so the sentinel remains strictly
+  over-budget without weakening the production default.
 
 ## Key files
 

@@ -1780,7 +1780,10 @@ Start-Sleep -Milliseconds 1000
         # exceed five seconds on a loaded Windows host. The containment claim is
         # the zero-wait spawn plus sentinel suppression, so keep a wider but
         # still finite launch budget to avoid converting scheduler delay into a
-        # false security failure.
+        # false security failure. Pin this fixture's gate drain below the
+        # grandchild's 1-second delay: the production default is tested
+        # elsewhere, while this race must keep its sentinel strictly
+        # over-budget instead of racing an equal deadline.
         $raceResult = Invoke-PrivateMarkerBoundedProcess `
             -FileName $currentPowerShellExecutable `
             -Arguments $raceArguments `
@@ -1789,6 +1792,7 @@ Start-Sleep -Milliseconds 1000
             ) `
             -TimeoutMilliseconds 10000 `
             -DrainTimeoutMilliseconds 3000 `
+            -WindowsGateOutputDrainTimeoutMilliseconds 250 `
             -ForceNativePosixSessionGate:(
                 -not $runtimeIsWindows -and $raceAttempt -eq 1
             )
