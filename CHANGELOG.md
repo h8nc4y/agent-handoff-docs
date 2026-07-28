@@ -28,6 +28,22 @@ The format loosely follows Keep a Changelog conventions.
 
 ### Fixed
 
+- Replace the Windows launch gate's fixed 100 ms post-target drain with an
+  explicit integer budget carried in the trusted payload. The default 1-second
+  window is capped by the parent's drain budget: a 300 ms inherited-pipe delay
+  preserves exact stdout/stderr and the requested exit code, while an
+  over-budget holder still returns `125` and is killed with the owned Job.
+  Missing, string, fractional, zero, and oversized payload values fail before
+  the requested child starts. Raw-transport failures now report only bounded
+  flags, lengths, and equality booleans rather than binary content. The three
+  targeted Windows timing probes use the existing finite 30-second production
+  default: under loaded local runs, the original raw probe's 5-second budget
+  preserved every expected byte but reported `TimedOut=True`, while 10 seconds
+  timed out before either stream produced a byte. The production
+  implementation/default, native Git fixture, Job cleanup, and output limits
+  remain unchanged. The immediate-spawn containment fixture pins a 250 ms gate
+  drain so its 1-second sentinel remains strictly over-budget instead of racing
+  that new production default.
 - Revalidate every retained regular-worktree snapshot immediately before the
   private-marker scanner reports. The final fail-closed pass reuses the safe
   path traversal and compares bytes exactly, so a same-length atomic

@@ -13,6 +13,12 @@ $script:privateMarkerProcessScriptPath = $PSCommandPath
 $script:privateMarkerIsWindows =
     [Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT
 
+# The launch gate has its own short post-target drain inside the parent's wider
+# bounded cleanup window. Keep the default generous enough for normal scheduler
+# delay while retaining a strict ceiling for tampered internal payloads.
+$script:privateMarkerDefaultWindowsGateOutputDrainTimeoutMilliseconds = 1000
+$script:privateMarkerMaximumWindowsGateOutputDrainTimeoutMilliseconds = 60000
+
 # Windows PowerShell 5.1 lacks Process.Kill(entireProcessTree). A kill-on-close
 # Job Object also remains usable after the direct child exits, which is the only
 # reliable way to stop a descendant that still owns a redirected pipe.
@@ -355,6 +361,31 @@ function Invoke-PrivateMarkerWindowsGateProxy {
         [Convert]::FromBase64String($PayloadBase64)
     )
     $payload = ConvertFrom-Json -InputObject $payloadJson
+
+    # Validate the raw JSON value before constructing or starting the requested
+    # child. ConvertFrom-Json represents integral JSON numbers as Int32/Int64;
+    # strings, floating-point coercions, missing values, and hostile ranges fail
+    # with one fixed diagnostic.
+    $drainBudgetProperty = $payload.PSObject.Properties[
+        'OutputDrainTimeoutMilliseconds'
+    ]
+    $drainBudgetValue = if ($null -ne $drainBudgetProperty) {
+        $drainBudgetProperty.Value
+    }
+    else {
+        $null
+    }
+    $drainBudgetIsInteger =
+        $drainBudgetValue -is [int] -or
+        $drainBudgetValue -is [long]
+    if (-not $drainBudgetIsInteger -or
+        [long]$drainBudgetValue -lt 1L -or
+        [long]$drainBudgetValue -gt
+            [long]${script:privateMarkerMaximumWindowsGateOutputDrainTimeoutMilliseconds}) {
+        throw 'The Windows gate output drain budget is invalid.'
+    }
+    $outputDrainTimeoutMilliseconds = [int]$drainBudgetValue
+
     $child = $null
     try {
         # A descendant inherits the already-assigned Job before it can execute.
@@ -424,15 +455,16 @@ function Invoke-PrivateMarkerWindowsGateProxy {
         $childExitCode = $child.ExitCode
 
         # A descendant can inherit the target-side pipe after the target exits.
-        # Bound this final drain so the gate exits promptly and lets the owning
-        # parent close the Job before a delayed descendant can act.
+        # Use the validated parent-supplied budget: ordinary scheduler delay can
+        # finish exact transport, while an over-budget holder releases the
+        # parent to close the owned Job.
         $outputTasks = [Threading.Tasks.Task[]]@(
             $stdoutTask,
             $stderrTask
         )
         $outputDrained = [Threading.Tasks.Task]::WaitAll(
             $outputTasks,
-            100
+            $outputDrainTimeoutMilliseconds
         )
         if ($outputDrained) {
             [void]$stdoutTask.GetAwaiter().GetResult()
@@ -763,6 +795,12 @@ function Invoke-PrivateMarkerBoundedProcess {
 
         [int]$DrainTimeoutMilliseconds = 5000,
 
+        # The trusted Windows launch gate uses a shorter bounded drain before
+        # returning 125 and yielding Job cleanup to this parent. Its effective
+        # value is capped by the parent's complete stream-drain budget.
+        [int]$WindowsGateOutputDrainTimeoutMilliseconds =
+            ${script:privateMarkerDefaultWindowsGateOutputDrainTimeoutMilliseconds},
+
         # Test-only selector for the portable libc setsid gate. Production
         # POSIX calls use it automatically when an external setsid is absent.
         [switch]$ForceNativePosixSessionGate,
@@ -778,6 +816,11 @@ function Invoke-PrivateMarkerBoundedProcess {
         $MaxStderrBytes -lt 0 -or
         $DrainTimeoutMilliseconds -le 0) {
         throw 'Bounded process limits must be positive (output limits may be zero).'
+    }
+    if ($WindowsGateOutputDrainTimeoutMilliseconds -le 0 -or
+        $WindowsGateOutputDrainTimeoutMilliseconds -gt
+            ${script:privateMarkerMaximumWindowsGateOutputDrainTimeoutMilliseconds}) {
+        throw 'The Windows gate output drain budget must be between 1 and 60000 ms.'
     }
     if ($null -ne $StandardInputBytes -and
         $StandardInputBytes.Length -gt $MaxStdinBytes) {
@@ -796,6 +839,10 @@ function Invoke-PrivateMarkerBoundedProcess {
     $effectiveFileName = $FileName
     $effectiveArguments = @($Arguments)
     $windowsLaunchGate = $null
+    $effectiveWindowsGateOutputDrainTimeoutMilliseconds = [Math]::Min(
+        $WindowsGateOutputDrainTimeoutMilliseconds,
+        $DrainTimeoutMilliseconds
+    )
     $usePosixProcessGroup = $false
     $useNativePosixSessionGate = $false
     $posixGateReadyPath = $null
@@ -821,6 +868,8 @@ function Invoke-PrivateMarkerBoundedProcess {
                 }
             ) -join ' '
             RedirectStandardInput = $null -ne $StandardInputBytes
+            OutputDrainTimeoutMilliseconds =
+                $effectiveWindowsGateOutputDrainTimeoutMilliseconds
         } | ConvertTo-Json -Compress -Depth 4
         $payloadBase64 = [Convert]::ToBase64String(
             [Text.Encoding]::UTF8.GetBytes($payloadJson)

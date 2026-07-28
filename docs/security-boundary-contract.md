@@ -59,6 +59,11 @@ keep the bounded POSIX cleanup contract portable:
   is requested because the exited parent left a descendant-held pipe, cleanup
   stops and drains the process group, and the delayed grandchild sentinel does
   not appear.
+- The Windows launch gate receives an explicit output-drain budget from the
+  bounded parent. The effective gate budget never exceeds the parent's drain
+  budget. Completion within that window preserves the requested child's exact
+  byte streams and exit code; an inherited pipe that remains open beyond the
+  window returns `125` and releases the parent to close the owned Job.
 - Every tracked regular worktree snapshot retains enough non-sensitive
   verification data to re-open the same relative path through the scanner's
   fail-closed path traversal. Immediately before final reporting, the scanner
@@ -81,7 +86,7 @@ keep the bounded POSIX cleanup contract portable:
   policy, the built-in workflow canonical source, and positive and negative
   policy regressions.
 - `scripts/private-marker-process.ps1`: minimum child environment builder and
-  Git-specific safety controls.
+  Git-specific safety controls, including the bounded Windows gate drain.
 - `scripts/scan-private-markers.ps1`: fail-closed tracked-worktree traversal,
   immutable scan snapshots, and final byte-for-byte snapshot verification.
 - `scripts/test-scan-private-markers.ps1`: cross-platform positive and negative
@@ -106,6 +111,7 @@ scan, and reported no `git-root-mismatch`.
 | Windows PowerShell 5.1 and PowerShell 7 behavior remains compatible | local full PS5 validation and repository scan, hosted PS5 readiness/whitespace smoke, and hosted Windows/Ubuntu/macOS PS7 full self-test plus repository scan | verified locally and in the evidence snapshot |
 | POSIX behavior, including the native session fallback, remains compatible | full self-test on Ubuntu and macOS; the fixture forces `libc` `setsid(2)` and rejects nonzero or unconfirmed-spawn evidence | verified on hosted Ubuntu and macOS |
 | A same-length tracked-worktree replacement cannot produce a stale success report | deterministic disposable-scanner-copy regression pauses after snapshot capture, atomically replaces the worktree file, and requires `integrity: worktree-content-drift` | verified locally on PowerShell 7; hosted cross-platform evidence pending |
+| Windows gate scheduling delay does not corrupt raw transport, while a descendant-held pipe still fails closed | exact immediate transport, delayed-drain success beyond 100 ms, malformed payload fail-before-start, and over-budget inherited-pipe cleanup regressions | verified locally on PowerShell 7 and Windows PowerShell 5.1; hosted evidence pending |
 | Repository security scan and whitespace checks pass | private-marker scan, Semgrep, Gitleaks, and `git diff --check` | private-marker and whitespace checks verified locally and in the evidence snapshot; Semgrep and Gitleaks verified locally |
 
 ## Non-goals
