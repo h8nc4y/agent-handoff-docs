@@ -28,6 +28,10 @@ The format loosely follows Keep a Changelog conventions.
 
 ### Fixed
 
+- Disable checkout credential persistence in both validation jobs and enforce
+  the fail-closed policy across every workflow, including regressions for a
+  missing value, an enabled value, a borrowed later value, duplicate keys, and
+  one unsecured checkout among multiple checkout steps.
 - Read `Process.HasExited` once per bounded polling iteration and reuse that
   snapshot for timeout handling, exit-code capture, and successful stream
   completion. This closes a false-to-true transition race that could return

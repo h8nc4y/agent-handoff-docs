@@ -162,6 +162,94 @@ function Test-WorkflowExternalUsesPolicy {
     }
 }
 
+function Test-WorkflowCheckoutCredentialPolicy {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Source
+    )
+
+    $violations = New-Object System.Collections.Generic.List[object]
+    $lines = @($Source -split '\r?\n')
+    for ($lineIndex = 0; $lineIndex -lt $lines.Count; $lineIndex++) {
+        $line = $lines[$lineIndex]
+        $canonicalUse = [regex]::Match(
+            $line,
+            '^\s*(?:-\s*)?uses\s*:\s*(?:"(?<double>[^"\s#]+)"|''(?<single>[^''\s#]+)''|(?<bare>[^\s#]+))(?:[ \t]+#.*)?[ \t]*$'
+        )
+        if (-not $canonicalUse.Success) { continue }
+
+        $reference = @(
+            $canonicalUse.Groups['double'].Value,
+            $canonicalUse.Groups['single'].Value,
+            $canonicalUse.Groups['bare'].Value
+        ) | Where-Object { -not [string]::IsNullOrEmpty($_) } |
+            Select-Object -First 1
+        if (-not $reference.StartsWith(
+                'actions/checkout@',
+                [StringComparison]::OrdinalIgnoreCase
+            )) {
+            continue
+        }
+
+        # Require the hardening input immediately after checkout. This
+        # canonical order prevents comments, another step, or another mapping
+        # from lending a visually plausible but unrelated value.
+        $leadingLength = [regex]::Match($line, '^\s*').Value.Length
+        $keyIndent = $leadingLength
+        if ($line.Substring($leadingLength).StartsWith('- ')) {
+            $keyIndent += 2
+        }
+        $activeIndexes = New-Object System.Collections.Generic.List[int]
+        for ($candidateIndex = $lineIndex + 1;
+            $candidateIndex -lt $lines.Count;
+            $candidateIndex++) {
+            $candidate = $lines[$candidateIndex]
+            $trimmed = $candidate.Trim()
+            if ([string]::IsNullOrWhiteSpace($trimmed) -or
+                $trimmed.StartsWith('#')) {
+                continue
+            }
+            $candidateIndent =
+                [regex]::Match($candidate, '^\s*').Value.Length
+            if ($candidateIndent -lt $keyIndent) { break }
+            $activeIndexes.Add($candidateIndex) | Out-Null
+        }
+
+        $withIsFirst = $activeIndexes.Count -ge 1 -and
+            $lines[$activeIndexes[0]] -cmatch
+                ("^\s{$keyIndent}with:\s*$")
+        $persistIsSecond = $activeIndexes.Count -ge 2 -and
+            $lines[$activeIndexes[1]] -cmatch (
+                "^\s{$($keyIndent + 2)}" +
+                'persist-credentials:\s*false\s*$'
+            )
+        $persistKeyCount = @(
+            $activeIndexes | Where-Object {
+                $lines[$_] -match (
+                    '^\s*(?:"persist-credentials"|''persist-credentials''|' +
+                    'persist-credentials)\s*:'
+                )
+            }
+        ).Count
+        if (-not $withIsFirst -or
+            -not $persistIsSecond -or
+            $persistKeyCount -ne 1) {
+            $violations.Add([pscustomobject]@{
+                Line = $lineIndex + 1
+                Reason = (
+                    'actions/checkout must immediately set ' +
+                    'with.persist-credentials to bare false'
+                )
+            }) | Out-Null
+        }
+    }
+
+    return [pscustomobject]@{
+        IsValid = $violations.Count -eq 0
+        Violations = @($violations | ForEach-Object { $_ })
+    }
+}
+
 function Assert-WorkflowExternalUsesPolicyRegressions {
     $commit = 'fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09'
     $cases = @(
@@ -297,6 +385,133 @@ function Assert-WorkflowExternalUsesPolicyRegressions {
     }
 }
 
+function Assert-WorkflowCheckoutCredentialPolicyRegressions {
+    $commit = 'fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09'
+    $valid = @"
+steps:
+  - uses: actions/checkout@$commit
+    with:
+      persist-credentials: false
+"@
+    $missing = @"
+steps:
+  - uses: actions/checkout@$commit
+"@
+    $enabled = @"
+steps:
+  - uses: actions/checkout@$commit
+    with:
+      persist-credentials: true
+"@
+    $borrowed = @"
+steps:
+  - uses: actions/checkout@$commit
+  - uses: owner/action@$commit
+    with:
+      persist-credentials: false
+"@
+    $oneOfTwoMissing = @"
+steps:
+  - uses: actions/checkout@$commit
+    with:
+      persist-credentials: false
+  - uses: actions/checkout@$commit
+"@
+    $duplicate = @"
+steps:
+  - uses: actions/checkout@$commit
+    with:
+      persist-credentials: false
+      persist-credentials: true
+"@
+    $caseVariantDuplicate = @"
+steps:
+  - uses: actions/checkout@$commit
+    with:
+      persist-credentials: false
+      Persist-Credentials: true
+"@
+    $doubleQuotedDuplicate = @"
+steps:
+  - uses: actions/checkout@$commit
+    with:
+      persist-credentials: false
+      "persist-credentials": true
+"@
+    $singleQuotedDuplicate = @"
+steps:
+  - uses: actions/checkout@$commit
+    with:
+      persist-credentials: false
+      'persist-credentials': true
+"@
+    $nonCheckout = @"
+steps:
+  - uses: owner/action@$commit
+"@
+
+    foreach ($case in @(
+        [pscustomobject]@{
+            Name = 'checkout-credentials-disabled'
+            Source = $valid
+            Expected = $true
+        },
+        [pscustomobject]@{
+            Name = 'checkout-input-missing'
+            Source = $missing
+            Expected = $false
+        },
+        [pscustomobject]@{
+            Name = 'checkout-credentials-enabled'
+            Source = $enabled
+            Expected = $false
+        },
+        [pscustomobject]@{
+            Name = 'later-step-cannot-lend-checkout-input'
+            Source = $borrowed
+            Expected = $false
+        },
+        [pscustomobject]@{
+            Name = 'one-of-two-checkouts-missing-input'
+            Source = $oneOfTwoMissing
+            Expected = $false
+        },
+        [pscustomobject]@{
+            Name = 'duplicate-checkout-input'
+            Source = $duplicate
+            Expected = $false
+        },
+        [pscustomobject]@{
+            Name = 'case-variant-duplicate-checkout-input'
+            Source = $caseVariantDuplicate
+            Expected = $false
+        },
+        [pscustomobject]@{
+            Name = 'double-quoted-duplicate-checkout-input'
+            Source = $doubleQuotedDuplicate
+            Expected = $false
+        },
+        [pscustomobject]@{
+            Name = 'single-quoted-duplicate-checkout-input'
+            Source = $singleQuotedDuplicate
+            Expected = $false
+        },
+        [pscustomobject]@{
+            Name = 'non-checkout-action'
+            Source = $nonCheckout
+            Expected = $true
+        }
+    )) {
+        $result = Test-WorkflowCheckoutCredentialPolicy -Source $case.Source
+        if ($result.IsValid -ne $case.Expected) {
+            Add-Failure (
+                'Workflow checkout credential policy regression failed: ' +
+                "$($case.Name)."
+            )
+        }
+    }
+}
+
 function Assert-AllWorkflowExternalUsesPinned {
     $workflowRoot = Get-RepoFilePath -RelativePath '.github/workflows'
     if (-not (Test-Path -LiteralPath $workflowRoot -PathType Container)) {
@@ -321,6 +536,14 @@ function Assert-AllWorkflowExternalUsesPinned {
             -Encoding UTF8
         $result = Test-WorkflowExternalUsesPolicy -Source $source
         foreach ($violation in $result.Violations) {
+            Add-Failure (
+                "$relativePath line $($violation.Line): " +
+                $violation.Reason
+            )
+        }
+        $credentialResult =
+            Test-WorkflowCheckoutCredentialPolicy -Source $source
+        foreach ($violation in $credentialResult.Violations) {
             Add-Failure (
                 "$relativePath line $($violation.Line): " +
                 $violation.Reason
@@ -358,6 +581,8 @@ function Test-WindowsPowerShell51WorkflowJobPolicy {
     steps:
       - name: Check out repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
 
       - name: Validate OSS readiness
         shell: pwsh
@@ -398,7 +623,9 @@ function Test-WindowsPowerShell51WorkflowJobPolicy {
                     '(?ms)^      - name: Check out repository\s*\r?\n' +
                     '        uses: actions/checkout@' +
                     'fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09' +
-                    '\s+#\s+v5\.1\.0\s*$'
+                    '\s+#\s+v5\.1\.0\s*\r?\n' +
+                    '        with:\s*\r?\n' +
+                    '          persist-credentials:\s*false\s*$'
                 )
             },
             [pscustomobject]@{
@@ -447,6 +674,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@$commit # v5.1.0
+        with:
+          persist-credentials: false
 
       - name: Validate OSS readiness
         shell: pwsh
@@ -593,6 +822,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
 
       - name: Validate OSS readiness
         shell: pwsh
@@ -621,6 +852,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
 
       - name: Validate OSS readiness
         shell: pwsh
@@ -1407,6 +1640,7 @@ Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'mac
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'validate-windows-powershell-5-1:' -Description 'independent Windows PowerShell 5.1 validation job'
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'timeout-minutes:\s*25' -Description 'bounded CI validation jobs'
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern '(?m)^\s*uses:\s*actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09\s+#\s+v5\.1\.0\s*$' -Description 'official immutable checkout action revision'
+Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern '(?m)^\s*persist-credentials:\s*false\s*$' -Description 'disabled checkout credential persistence'
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'powershell\.exe\s+-NoProfile\s+-NonInteractive\s+-ExecutionPolicy\s+Bypass\s+-File\s+\./scripts/validate-oss-readiness\.ps1' -Description 'explicit Windows PowerShell 5.1 readiness validation in CI'
 Assert-FileContains -RelativePath 'scripts/test-scan-private-markers.ps1' -Pattern '-ForceNativePosixSessionGate:\(-not \$runtimeIsWindows\)' -Description 'forced native POSIX session gate fixture'
 Assert-FileContains -RelativePath 'scripts/test-scan-private-markers.ps1' -Pattern 'POSIX native session gate evidence: forced libc setsid\(2\)' -Description 'native POSIX session gate CI evidence marker'
@@ -1418,6 +1652,7 @@ Assert-FileContains -RelativePath 'scripts/test-scan-private-markers.ps1' -Patte
 Assert-FileContains -RelativePath 'scripts/test-scan-private-markers.ps1' -Pattern '\$tempRoot = Resolve-PhysicalDirectoryPath' -Description 'physical canonical fixture temp root'
 Assert-FileContains -RelativePath 'scripts/test-scan-private-markers.ps1' -Pattern 'physical temp-root alias regression' -Description 'physical temp-root alias regression'
 Assert-WorkflowExternalUsesPolicyRegressions
+Assert-WorkflowCheckoutCredentialPolicyRegressions
 Assert-AllWorkflowExternalUsesPinned
 Assert-WindowsPowerShell51WorkflowJobRegressions
 Assert-WindowsPowerShell51WorkflowJob
