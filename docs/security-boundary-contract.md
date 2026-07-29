@@ -112,7 +112,7 @@ scan, and reported no `git-root-mismatch`.
 | Criterion | Verification | Status |
 | --- | --- | --- |
 | Checkout uses the verified official full SHA | readiness validation and workflow review | verified locally and in the evidence snapshot |
-| Checkout does not persist credentials for later Git commands | repository-wide checkout-input policy, exact canonical-source comparison, and mutation regressions | verified locally on PS5/PS7; hosted verification pending |
+| Checkout does not persist credentials for later Git commands | repository-wide checkout-input policy, exact canonical-source comparison, and mutation regressions | verified locally on PS5/PS7 and in both four-job hosted runs |
 | Any mutable, aliased, escaped, or malformed external `uses:` fails closed | synthetic positive/negative readiness fixtures on Windows, Ubuntu, and macOS | verified on local PS5/PS7 and all hosted PS7 runners |
 | The built-in workflow cannot hide or redirect required checks | exact canonical-source comparison and mutation regression | verified on local PS5/PS7 and all hosted PS7 runners |
 | Ambient credential, loader, agent, and custom variables are absent in bounded children | cross-platform environment probe | verified on hosted Windows, Ubuntu, and macOS |
