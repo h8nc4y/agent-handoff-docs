@@ -16,20 +16,18 @@ test, and CI state outranks this summary.
 
 ## Current goal and success metric
 
-Ensure every `actions/checkout` step disables credential persistence and make
-readiness reject an omitted, enabled, duplicated, or misplaced setting. This
-work unit is complete after both local PowerShell paths and scanners pass, an
-independent review is clear, the pull request is merged, and post-merge hosted
-validation is green.
+Maintain the merged checkout credential contract. This work unit is complete
+while the repository remains clean, local `main` matches `origin/main`, and
+current hosted validation remains green.
 
 ## Current position
 
 - The primary checkout is clean and local `main` matches `origin/main`.
-- No pull request or issue is open. Recheck observable Git/GitHub state instead
-  of copying a current commit SHA into this living file.
-- An isolated task branch adds `persist-credentials: false` to both checkout
-  steps without changing workflow pins, triggers, permissions, jobs, matrix,
-  timeouts, or commands.
+- No implementation pull request or issue remains open for the checkout
+  credential change. Recheck observable Git/GitHub state instead of copying a
+  current commit SHA into this living file.
+- Both checkout steps set `persist-credentials: false` without changing
+  workflow pins, triggers, permissions, jobs, matrix, timeouts, or commands.
 - Readiness now owns the repository-wide checkout credential policy and its
   missing, enabled, borrowed, duplicated, and partial-coverage regressions.
 - Readiness, the scanner self-test, and the repository scan pass locally under
@@ -42,6 +40,9 @@ validation is green.
   macOS.
 - Pull request #14 merged the closeout as `d48e8ac`. Head run `30355295973` and
   final main run `30355898226` passed the same four hosted jobs.
+- Pull request #16 merged checkout credential hardening as `33e9375`. Head run
+  `30489201915` and post-main run `30489760861` passed Windows PowerShell 7,
+  Windows PowerShell 5.1, Ubuntu, and macOS.
 
 ## Key files
 
@@ -66,5 +67,5 @@ validation is green.
 
 ## Next step
 
-Perform an independent frozen-diff review, then stage the exact reviewed files,
-run the global security hook, commit, and open the pull request.
+No immediate follow-up is required for this change. Select the next task from
+current repository issues, pull requests, or reproducible test failures.
