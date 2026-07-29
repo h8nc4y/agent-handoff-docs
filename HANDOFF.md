@@ -16,18 +16,24 @@ test, and CI state outranks this summary.
 
 ## Current goal and success metric
 
-Maintain the merged atomic process-exit observation contract. This work unit is
-complete while the repository remains clean, local `main` matches
-`origin/main`, and current hosted validation remains green.
+Ensure every `actions/checkout` step disables credential persistence and make
+readiness reject an omitted, enabled, duplicated, or misplaced setting. This
+work unit is complete after both local PowerShell paths and scanners pass, an
+independent review is clear, the pull request is merged, and post-merge hosted
+validation is green.
 
 ## Current position
 
 - The primary checkout is clean and local `main` matches `origin/main`.
 - No pull request or issue is open. Recheck observable Git/GitHub state instead
   of copying a current commit SHA into this living file.
-- The bounded polling loop snapshots `Process.HasExited` once after stream
-  updates and reuses it for timeout, exit capture, and break. The AST seal is
-  green with one direct read and four snapshot references.
+- An isolated task branch adds `persist-credentials: false` to both checkout
+  steps without changing workflow pins, triggers, permissions, jobs, matrix,
+  timeouts, or commands.
+- Readiness now owns the repository-wide checkout credential policy and its
+  missing, enabled, borrowed, duplicated, and partial-coverage regressions.
+- Readiness, the scanner self-test, and the repository scan pass locally under
+  PowerShell 7 and Windows PowerShell 5.1. Gitleaks and Semgrep also pass.
 
 ## Verified historical closeout
 
@@ -39,21 +45,19 @@ complete while the repository remains clean, local `main` matches
 
 ## Key files
 
-- `scripts/validate-oss-readiness.ps1` — readiness and atomic-exit contract.
-- `docs/atomic-exit-observation-hardening*.md` — current Class M exit-race
-  design and evidence.
+- `.github/workflows/validate.yml` — canonical validation workflow.
+- `scripts/validate-oss-readiness.ps1` — readiness and checkout policy.
+- `docs/security-boundary-contract.md` — owned security invariants and tests.
 - `CHANGELOG.md` and merged pull requests — durable history.
 
 ## Recent decisions
 
-- Snapshot process exit once per polling iteration. Never let timeout, exit
-  capture, and successful drain completion perform independent `HasExited`
-  reads.
+- Place bare `persist-credentials: false` immediately under every checkout
+  action. A later step or another checkout cannot satisfy that checkout.
 
 ## Known issues
 
-- No known source, test, or hosted-validation issue remains for the atomic
-  exit-observation change.
+- `actionlint` remains unconfirmed and is not retried for this work unit.
 
 ## Do not re-read
 
@@ -62,5 +66,5 @@ complete while the repository remains clean, local `main` matches
 
 ## Next step
 
-No immediate follow-up is required for this change. Select the next task from
-current repository issues, pull requests, or reproducible test failures.
+Perform an independent frozen-diff review, then stage the exact reviewed files,
+run the global security hook, commit, and open the pull request.

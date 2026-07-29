@@ -15,13 +15,14 @@ corrected.
 Prevent ambient supply-chain paths from influencing repository validation and
 keep the bounded POSIX cleanup contract portable:
 
-1. a mutable or dynamically selected external GitHub Action revision; and
-2. an unrelated parent-process environment variable reaching a scanner or Git
+1. a mutable or dynamically selected external GitHub Action revision;
+2. checkout credentials remaining configured for later Git commands; and
+3. an unrelated parent-process environment variable reaching a scanner or Git
    child merely because `ProcessStartInfo` cloned the parent environment; and
-3. a platform-specific process-session path silently working on Linux while
+4. a platform-specific process-session path silently working on Linux while
    failing on macOS, where an external `setsid` executable is commonly absent;
    and
-4. a tracked regular worktree file changing after its bytes were captured but
+5. a tracked regular worktree file changing after its bytes were captured but
    before a successful private-marker report is emitted.
 
 ## Threat model and invariants
@@ -29,6 +30,9 @@ keep the bounded POSIX cleanup contract portable:
 - Every active external `uses:` entry under `.github/workflows/` must use an
   owner/repository reference pinned to one lowercase 40-character Git commit
   SHA. Repository-local `./` actions remain allowed.
+- Every active `actions/checkout` step must immediately set
+  `with.persist-credentials` to the bare boolean `false`. Missing, enabled,
+  duplicated, or later-step values fail closed.
 - Non-canonical, dynamic, abbreviated, tag, branch, Docker, and unparseable
   external `uses:` forms fail closed.
 - Because the validator must also run on Windows PowerShell 5.1 without a YAML
@@ -87,8 +91,8 @@ keep the bounded POSIX cleanup contract portable:
 - `.github/workflows/validate.yml`: immutable Action revisions and the
   Windows/Ubuntu/macOS execution matrix.
 - `scripts/validate-oss-readiness.ps1`: repository-wide external `uses:`
-  policy, the built-in workflow canonical source, and positive and negative
-  policy regressions.
+  and checkout-credential policies, the built-in workflow canonical source,
+  and positive and negative policy regressions.
 - `scripts/private-marker-process.ps1`: minimum child environment builder and
   Git-specific safety controls, including the bounded Windows gate drain.
 - `scripts/scan-private-markers.ps1`: fail-closed tracked-worktree traversal,
@@ -108,6 +112,7 @@ scan, and reported no `git-root-mismatch`.
 | Criterion | Verification | Status |
 | --- | --- | --- |
 | Checkout uses the verified official full SHA | readiness validation and workflow review | verified locally and in the evidence snapshot |
+| Checkout does not persist credentials for later Git commands | repository-wide checkout-input policy, exact canonical-source comparison, and mutation regressions | verified locally on PS5/PS7; hosted verification pending |
 | Any mutable, aliased, escaped, or malformed external `uses:` fails closed | synthetic positive/negative readiness fixtures on Windows, Ubuntu, and macOS | verified on local PS5/PS7 and all hosted PS7 runners |
 | The built-in workflow cannot hide or redirect required checks | exact canonical-source comparison and mutation regression | verified on local PS5/PS7 and all hosted PS7 runners |
 | Ambient credential, loader, agent, and custom variables are absent in bounded children | cross-platform environment probe | verified on hosted Windows, Ubuntu, and macOS |

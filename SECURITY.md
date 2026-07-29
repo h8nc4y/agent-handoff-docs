@@ -78,10 +78,12 @@ detect every possible secret format and is no substitute for keeping real
 credentials out of the repository in the first place. Treat a passing
 scan as "no known marker found," not "definitely safe."
 
-The validation workflow pins external GitHub Actions to full commit SHAs.
+The validation workflow pins external GitHub Actions to full commit SHAs and
+sets `persist-credentials: false` on every checkout step.
 `scripts/validate-oss-readiness.ps1` scans every active external `uses:`
 entry in every workflow file and rejects tags, branches, abbreviated SHAs,
-expressions, Docker references, and non-canonical/unparseable forms. The
+expressions, Docker references, non-canonical/unparseable forms, and checkout
+steps that do not immediately disable credential persistence. The
 dependency-free PowerShell 5.1 policy also rejects YAML explicit keys,
 escaped/folded double-quoted scalars, and anchors/aliases because those forms
 can decode or alias into a hidden semantic `uses` key. The

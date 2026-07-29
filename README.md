@@ -406,12 +406,13 @@ scan and full self-test remain required under PowerShell 7 on Windows, Ubuntu,
 and macOS. Every CI job has a 25-minute timeout. The readiness validator scans
 every active external `uses:` entry under `.github/workflows/` and fails closed
 unless it is pinned to a full lowercase 40-character commit SHA; repository-
-local `./` actions remain allowed. To keep the Windows PowerShell 5.1 policy
-dependency-free and fail-closed, workflow explicit keys, escaped/folded
-double-quoted scalars, and YAML anchors/aliases are also rejected. The
-built-in validation workflow must also match its reviewed canonical source
-exactly, preventing extra YAML fields, jobs, steps, or scalar wrappers from
-masking the required checks. See the
+local `./` actions remain allowed. Every checkout step must immediately set
+`persist-credentials: false`, so the checkout token is not left configured for
+later Git commands. To keep the Windows PowerShell 5.1 policy dependency-free
+and fail-closed, workflow explicit keys, escaped/folded double-quoted scalars,
+and YAML anchors/aliases are also rejected. The built-in validation workflow
+must also match its reviewed canonical source exactly, preventing extra YAML
+fields, jobs, steps, or scalar wrappers from masking the required checks. See the
 [security boundary contract](docs/security-boundary-contract.md) for the
 owned invariants and test plan.
 
