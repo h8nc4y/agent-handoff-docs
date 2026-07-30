@@ -105,6 +105,16 @@ same range before constructing the requested child.
   30,000 ms production default as their finite test budget. The original hosted
   failure's missing field-level cause remains unconfirmed.
 
+## Hosted verification record
+
+Pull request #12 head run `30350038650` passed all four hosted jobs; its Windows
+PowerShell 7 job ran the full suite containing the gate regressions. Its
+immediate post-merge run `30350539529` had one failed Ubuntu job and is not
+counted as passing evidence. Pull request #13 head run `30354157531`, its
+post-main run `30354646900`, and audited main run `30496527183` later passed
+all four jobs, including the Windows PowerShell 7 full-suite job. These passing
+runs do not establish the original timing failure's field-level cause.
+
 ## Non-goals
 
 - Waiting without a finite deadline.

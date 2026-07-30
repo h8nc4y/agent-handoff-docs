@@ -50,4 +50,6 @@ filesystem compare-and-swap semantics を保証するものではない。
 PowerShell 7 と Windows PowerShell 5.1 の readiness と repository scan、
 PowerShell 7 の full synthetic suite、strict text hygiene、Gitleaks の
 directory/history scan、Semgrep `p/default`、`git diff --check` は成功した。
-hosted cross-platform validation は pull request 実行まで未確認である。
+pull request #11 の head run `30341015703` は hosted job 4件すべてに成功し、PowerShell 7 job 3件は content-drift regression を含む full suite を実行した。
+直後の post-merge run `30341569740` は Windows PowerShell 7 job 1件が失敗したため、成功証拠には数えない。
+後続 main run `30354646900` と `30496527183` は、いずれも4件すべてに成功し、PowerShell 7 job 3件は full suite を実行した。
