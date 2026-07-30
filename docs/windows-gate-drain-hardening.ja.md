@@ -100,6 +100,13 @@ requested child を構築する前に、同じ範囲の raw JSON integer だけ�
   default と同じ有限 30,000 ms を test budget として使う。過去の hosted
   failure の field-level 原因は引き続き未確認である。
 
+## hosted 検証記録
+
+pull request #12 の head run `30350038650` は hosted job 4件すべてに成功し、Windows PowerShell 7 job は gate regression を含む full suite を実行した。
+直後の post-merge run `30350539529` は Ubuntu job 1件が失敗したため、成功証拠には数えない。
+pull request #13 の head run `30354157531`、post-main run `30354646900`、監査対象の main run `30496527183` は、その後いずれも4件すべてに成功し、Windows PowerShell 7 job は full suite を実行した。
+これらの成功runは、過去の timing failure の field-level 原因を断定する根拠にはしない。
+
 ## 非目標
 
 - 有限期限なしで待つこと。

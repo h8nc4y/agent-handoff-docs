@@ -52,5 +52,9 @@ with the fixed reason and without reflecting the path or sentinel. PowerShell
 7 and Windows PowerShell 5.1 readiness and repository scans passed. The
 PowerShell 7 full synthetic suite exited `0`; strict text hygiene, Gitleaks
 directory/history scans, Semgrep `p/default`, and `git diff --check` also
-passed. Hosted cross-platform validation remains pending until the pull
-request runs.
+passed. Pull request #11 head run `30341015703` passed all four hosted jobs;
+the three PowerShell 7 jobs ran the full suite containing the content-drift
+regression. Its immediate post-merge run `30341569740` had one failed Windows
+PowerShell 7 job and is not counted as passing evidence. Later main runs
+`30354646900` and `30496527183` passed all four jobs, including the three
+PowerShell 7 full-suite jobs.

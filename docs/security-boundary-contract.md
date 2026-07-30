@@ -109,6 +109,14 @@ Windows, Ubuntu, macOS 15, and Windows PowerShell 5.1 jobs at commit
 `libc` `setsid(2)` evidence marker, completed the full self-test and repository
 scan, and reported no `git-root-mismatch`.
 
+Follow-up evidence: pull request #11 head run `30341015703`, pull request #12
+head run `30350038650`, and pull request #13 head run `30354157531` each passed
+the same four hosted jobs. Pull request #13 post-main run `30354646900` and
+audited main run `30496527183` also passed all four jobs with the three
+hardening regressions present. The immediate post-merge runs for pull requests
+#11 and #12, `30341569740` and `30350539529`, each had one failed job and are
+not counted as passing evidence.
+
 | Criterion | Verification | Status |
 | --- | --- | --- |
 | Checkout uses the verified official full SHA | readiness validation and workflow review | verified locally and in the evidence snapshot |
@@ -119,9 +127,9 @@ scan, and reported no `git-root-mismatch`.
 | Required OS/runtime, isolation, PATH, locale, and Git controls remain usable | cross-platform positive environment probe and full scanner self-test | verified on hosted Windows, Ubuntu, and macOS |
 | Windows PowerShell 5.1 and PowerShell 7 behavior remains compatible | local full PS5 validation and repository scan, hosted PS5 readiness/whitespace smoke, and hosted Windows/Ubuntu/macOS PS7 full self-test plus repository scan | verified locally and in the evidence snapshot |
 | POSIX behavior, including the native session fallback, remains compatible | full self-test on Ubuntu and macOS; the fixture forces `libc` `setsid(2)` and rejects nonzero or unconfirmed-spawn evidence | verified on hosted Ubuntu and macOS |
-| A same-length tracked-worktree replacement cannot produce a stale success report | deterministic disposable-scanner-copy regression pauses after snapshot capture, atomically replaces the worktree file, and requires `integrity: worktree-content-drift` | verified locally on PowerShell 7; hosted cross-platform evidence pending |
-| Windows gate scheduling delay does not corrupt raw transport, while a descendant-held pipe still fails closed | exact immediate transport, delayed-drain success beyond 100 ms, malformed payload fail-before-start, and over-budget inherited-pipe cleanup regressions | verified locally on PowerShell 7 and Windows PowerShell 5.1; hosted evidence pending |
-| A fast child exit cannot skip exit-code capture between polling reads | AST single-snapshot seal, fast-exit `-ExitObservationOnly` regression on both Windows hosts and native Linux, forged-`OS` scanner regression, and hosted four-OS validation | targeted Windows and bounded native Linux evidence verified; full and hosted evidence pending |
+| A same-length tracked-worktree replacement cannot produce a stale success report | deterministic disposable-scanner-copy regression pauses after snapshot capture, atomically replaces the worktree file, and requires `integrity: worktree-content-drift` | verified locally on PowerShell 7 and by the hosted PowerShell 7 matrix in pull request #11 head and later main runs |
+| Windows gate scheduling delay does not corrupt raw transport, while a descendant-held pipe still fails closed | exact immediate transport, delayed-drain success beyond 100 ms, malformed payload fail-before-start, and over-budget inherited-pipe cleanup regressions | verified locally on PowerShell 7 and Windows PowerShell 5.1 and by the hosted Windows PowerShell 7 job in pull request #12 head and later main runs |
+| A fast child exit cannot skip exit-code capture between polling reads | AST single-snapshot seal, fast-exit `-ExitObservationOnly` regression on both Windows hosts and native Linux, forged-`OS` scanner regression, and hosted four-OS validation | targeted Windows, bounded native Linux, local full-suite, and hosted PowerShell 7 matrix evidence verified at pull request #13 head and post-main |
 | Repository security scan and whitespace checks pass | private-marker scan, Semgrep, Gitleaks, and `git diff --check` | private-marker and whitespace checks verified locally and in the evidence snapshot; Semgrep and Gitleaks verified locally |
 
 ## Non-goals
