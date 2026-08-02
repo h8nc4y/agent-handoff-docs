@@ -106,6 +106,11 @@ The format loosely follows Keep a Changelog conventions.
 
 ### Changed
 
+- Upgrade both canonical `actions/checkout` pins from v5.1.0 to v7.0.1 at
+  the verified official full commit SHA. Readiness keeps the exact reviewed
+  workflow contract and adds explicit mutations for a mutable `@v7` ref, the
+  legacy v5.1.0 pin, and a stale version comment while preserving read-only
+  permissions and `persist-credentials: false`.
 - Run the complete PowerShell 7 validation suite on the standard `macos-15`
   runner as well as Windows and Ubuntu. Readiness now requires that runner in
   the exact canonical workflow, and a targeted mutation regression rejects its
