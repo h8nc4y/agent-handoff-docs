@@ -16,45 +16,42 @@ test, and CI state outranks this summary.
 
 ## Current goal and success metric
 
-Keep this living handoff as a compact startup map after the hosted-evidence
-closeout. While no issue, pull-request feedback, CI failure, or reproducible
-contract gap is active, the repository is in a wait state. Future work succeeds
-when it starts from live measurements, preserves the security contract and
-failed-run caveats, and does not repeat merged work.
+Upgrade both canonical `actions/checkout` steps from v5.1.0 to the verified
+official v7.0.1 full commit SHA. This work succeeds when the exact workflow and
+validator mutations agree, local PowerShell/security gates pass, independent
+review is clear, and the pull-request head plus post-main runs pass all four
+hosted jobs without changing any other workflow boundary.
 
 ## Current position
 
-- Pull request #18 merged the six-document hosted-evidence closeout. Its head
-  run and the following `main` run passed all four hosted jobs.
-- Pull request #11 and #12 head runs passed all four hosted jobs. Their
-  immediate post-merge runs each had one failed job and are not cited as green
-  evidence.
-- Pull request #13 head and post-main runs, and the audited main run, passed all
-  four hosted jobs with all three hardening units integrated.
-- The security contract and paired worktree/Windows evidence records now
-  distinguish the passing evidence from the two failed post-merge runs.
-- Runtime scripts, tests, workflows, canonical `SKILL.md`, and its Japanese
-  translation are unchanged.
-- For the pull request #18 six-document source diff, readiness, the scanner
-  self-test, and the repository scan passed under PowerShell 7 and Windows
-  PowerShell 5.1.
-- In that source worktree, Gitleaks found no leaks in the directory or
-  19-commit history. Semgrep `p/default` exited `0` on the exact six pull
-  request #18 documents.
-- Observable Git, issue, pull-request, and CI state is not frozen here. Measure
-  it again at the start of each work unit.
+- Baseline `main`, `origin/main`, and live GitHub `main` were
+  `71a0194c7eb081ede0e873cf073bf125ec01fe00`; the tree was clean with no open
+  issue, pull request, deployment, stash, or additional worktree.
+- The official v7.0.1 tag resolves directly to verified commit
+  `3d3c42e5aac5ba805825da76410c181273ba90b1`. Both v5.1.0 and v7.0.1 use the
+  Node 24 action runtime.
+- Validator-first TDD rejected the old workflow with four expected contract
+  diagnostics. Updating the two checkout steps restored PowerShell 7 and 5.1
+  readiness without changing triggers, permissions, jobs, runners, timeouts,
+  steps, or `persist-credentials: false`.
+- Final candidate readiness, repository scans, Gitleaks, Semgrep, encoding,
+  and whitespace checks passed. Two independent read-only reviews found no
+  P0, P1, P2, or P3 issue. Pull-request CI, merge, and post-main evidence
+  remain pending.
 
 ## Verified evidence used by this work unit
 
-- Pull request #11 head run `30341015703` and pull request #12 head run
-  `30350038650` passed Windows PowerShell 7, Windows PowerShell 5.1, Ubuntu,
-  and macOS.
-- Pull request #13 head run `30354157531` and post-main run `30354646900`
-  passed the same four hosted jobs.
-- Audited main run `30496527183` passed the same four jobs.
-- Pull request #18 head run `30538967451` and post-main run `30539539770`
-  passed the same four jobs. The source commit was `598c050`; the merge commit
-  was `1abf4f2`.
+- Baseline run `30589709258` passed Windows PowerShell 7, Windows PowerShell
+  5.1, Ubuntu, and macOS on the baseline commit.
+- Baseline readiness passed under PowerShell 7 and 5.1. Scanner self-tests
+  passed in 471.6 and 217.2 seconds respectively; repository scans passed in
+  17 and 10 seconds respectively.
+- Candidate readiness passed under PowerShell 7 and 5.1 in 1.3 and 0.9 seconds;
+  repository scans passed in 17.8 and 10.4 seconds. Gitleaks found no leak,
+  targeted Semgrep ran 82 rules on five files with no finding, and encoding,
+  line-ending, NUL, and whitespace checks passed.
+- Two independent read-only reviews of the same staged candidate reported no
+  P0, P1, P2, or P3 issue.
 - Runs `30341569740` and `30350539529` each had one failed job and remain
   excluded from passing evidence.
 
@@ -82,7 +79,7 @@ failed-run caveats, and does not repeat merged work.
 
 ## Next step
 
-1. At startup, inspect Git status, branch, remote/default-branch state, open
-   issues and pull requests, and the latest CI result.
-2. If those measurements reveal no actionable work, leave the repository
-   unchanged and continue the development loop in another project.
+1. Push one focused pull request, verify all four hosted jobs on its exact
+   head, merge, and verify the post-main run.
+2. Sync integration evidence, clean the task branch, and return the repository
+   to its measured wait state. Do not retry `actionlint` in this work unit.

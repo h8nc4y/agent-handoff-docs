@@ -251,12 +251,12 @@ function Test-WorkflowCheckoutCredentialPolicy {
 }
 
 function Assert-WorkflowExternalUsesPolicyRegressions {
-    $commit = 'fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09'
+    $commit = '3d3c42e5aac5ba805825da76410c181273ba90b1'
     $cases = @(
         [pscustomobject]@{
             Name = 'full-sha'
             Expected = $true
-            Source = "steps:`n  - uses: actions/checkout@$commit # v5.1.0"
+            Source = "steps:`n  - uses: actions/checkout@$commit # v7.0.1"
         },
         [pscustomobject]@{
             Name = 'quoted-full-sha-and-local-action'
@@ -386,7 +386,7 @@ function Assert-WorkflowExternalUsesPolicyRegressions {
 }
 
 function Assert-WorkflowCheckoutCredentialPolicyRegressions {
-    $commit = 'fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09'
+    $commit = '3d3c42e5aac5ba805825da76410c181273ba90b1'
     $valid = @"
 steps:
   - uses: actions/checkout@$commit
@@ -580,7 +580,7 @@ function Test-WindowsPowerShell51WorkflowJobPolicy {
     timeout-minutes: 25
     steps:
       - name: Check out repository
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -622,8 +622,8 @@ function Test-WindowsPowerShell51WorkflowJobPolicy {
                 Pattern = (
                     '(?ms)^      - name: Check out repository\s*\r?\n' +
                     '        uses: actions/checkout@' +
-                    'fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09' +
-                    '\s+#\s+v5\.1\.0\s*\r?\n' +
+                    '3d3c42e5aac5ba805825da76410c181273ba90b1' +
+                    '\s+#\s+v7\.0\.1\s*\r?\n' +
                     '        with:\s*\r?\n' +
                     '          persist-credentials:\s*false\s*$'
                 )
@@ -664,7 +664,7 @@ function Test-WindowsPowerShell51WorkflowJobPolicy {
 }
 
 function Assert-WindowsPowerShell51WorkflowJobRegressions {
-    $commit = 'fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09'
+    $commit = '3d3c42e5aac5ba805825da76410c181273ba90b1'
     $valid = @"
 jobs:
   validate-windows-powershell-5-1:
@@ -673,7 +673,7 @@ jobs:
     timeout-minutes: 25
     steps:
       - name: Check out repository
-        uses: actions/checkout@$commit # v5.1.0
+        uses: actions/checkout@$commit # v7.0.1
         with:
           persist-credentials: false
 
@@ -691,7 +691,7 @@ jobs:
     timeout-minutes: 25
     steps:
       - name: Check out repository
-        uses: actions/checkout@$commit # v5.1.0
+        uses: actions/checkout@$commit # v7.0.1
       - name: Validate OSS readiness
         shell: pwsh
         run: powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ./scripts/validate-oss-readiness.ps1
@@ -717,7 +717,7 @@ jobs:
     timeout-minutes: 25
     steps:
       - name: Check out repository
-        uses: actions/checkout@$commit # v5.1.0
+        uses: actions/checkout@$commit # v7.0.1
       - name: Validate OSS readiness
         shell: pwsh
         run: powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ./scripts/validate-oss-readiness.ps1
@@ -730,7 +730,7 @@ jobs:
   validate-windows-powershell-5-1:
     name: |2
       - name: Check out repository
-        uses: actions/checkout@$commit # v5.1.0
+        uses: actions/checkout@$commit # v7.0.1
       - name: Validate OSS readiness
         shell: pwsh
         run: powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ./scripts/validate-oss-readiness.ps1
@@ -821,7 +821,7 @@ jobs:
     timeout-minutes: 25
     steps:
       - name: Check out repository
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -851,7 +851,7 @@ jobs:
     timeout-minutes: 25
     steps:
       - name: Check out repository
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -902,6 +902,24 @@ function Assert-CanonicalValidationWorkflowSourceRegressions {
             $canonical + "`n# unexpected workflow mutation"
         )) {
         Add-Failure 'Canonical validation workflow accepted an extra mutation.'
+    }
+    $mutableCheckout = $canonical.Replace(
+        'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',
+        'actions/checkout@v7'
+    )
+    if (Test-CanonicalValidationWorkflowSource -Source $mutableCheckout) {
+        Add-Failure 'Canonical validation workflow accepted mutable checkout v7.'
+    }
+    $legacyCheckout = $canonical.Replace(
+        'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1',
+        'actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0'
+    )
+    if (Test-CanonicalValidationWorkflowSource -Source $legacyCheckout) {
+        Add-Failure 'Canonical validation workflow accepted legacy checkout v5.1.0.'
+    }
+    $staleCheckoutComment = $canonical.Replace('# v7.0.1', '# v5.1.0')
+    if (Test-CanonicalValidationWorkflowSource -Source $staleCheckoutComment) {
+        Add-Failure 'Canonical validation workflow accepted a stale checkout version comment.'
     }
 }
 
@@ -1639,7 +1657,7 @@ Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'ubu
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'macos-15' -Description 'macOS validation runner in CI'
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'validate-windows-powershell-5-1:' -Description 'independent Windows PowerShell 5.1 validation job'
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'timeout-minutes:\s*25' -Description 'bounded CI validation jobs'
-Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern '(?m)^\s*uses:\s*actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09\s+#\s+v5\.1\.0\s*$' -Description 'official immutable checkout action revision'
+Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern '(?m)^\s*uses:\s*actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\s+#\s+v7\.0\.1\s*$' -Description 'official immutable checkout action revision'
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern '(?m)^\s*persist-credentials:\s*false\s*$' -Description 'disabled checkout credential persistence'
 Assert-FileContains -RelativePath '.github/workflows/validate.yml' -Pattern 'powershell\.exe\s+-NoProfile\s+-NonInteractive\s+-ExecutionPolicy\s+Bypass\s+-File\s+\./scripts/validate-oss-readiness\.ps1' -Description 'explicit Windows PowerShell 5.1 readiness validation in CI'
 Assert-FileContains -RelativePath 'scripts/test-scan-private-markers.ps1' -Pattern '-ForceNativePosixSessionGate:\(-not \$runtimeIsWindows\)' -Description 'forced native POSIX session gate fixture'
