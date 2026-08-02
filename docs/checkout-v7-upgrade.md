@@ -47,14 +47,18 @@
 
 ## Handoff
 
-- **State:** doing. Official provenance, runtime compatibility, baseline live
-  state, baseline local gates, validator-first RED / workflow GREEN, and final
-  candidate local security/hygiene gates are verified. Two independent
-  read-only reviews found no P0, P1, P2, or P3 issue.
+- **State:** done. Official provenance, runtime compatibility, baseline live
+  state, validator-first RED / workflow GREEN, final local security/hygiene
+  gates, two independent reviews, and hosted integration evidence are verified.
 - **Local evidence:** Final readiness and repository scans passed under
   PowerShell 7 and 5.1. Gitleaks found no leak; targeted Semgrep ran 82 rules
   on five files with no finding; UTF-8/BOM profiles, LF, NUL, and
   `git diff --check` passed.
+- **Integration evidence:** Pull request #20 head run `30740612980` passed all
+  four hosted jobs. The feature merged as
+  `b41591039a39ee2a5068e7c46001431e4010d32d`; exact-main run `30740886674`
+  passed the same four jobs, and post-main local readiness and repository scans
+  passed under PowerShell 7 and 5.1.
 - **External boundary:** No secret, OAuth, real data, production, deployment,
   paid operation, tag, or GitHub Release is used.
-- **Not yet verified:** v7.0.1 pull-request/main hosted runs.
+- **Not verified:** `actionlint` remains unconfirmed for this work unit.
