@@ -16,11 +16,10 @@ test, and CI state outranks this summary.
 
 ## Current goal and success metric
 
-Upgrade both canonical `actions/checkout` steps from v5.1.0 to the verified
-official v7.0.1 full commit SHA. This work succeeds when the exact workflow and
-validator mutations agree, local PowerShell/security gates pass, independent
-review is clear, and the pull-request head plus post-main runs pass all four
-hosted jobs without changing any other workflow boundary.
+Keep this repository in a measured wait state after completing the checkout
+v7.0.1 upgrade. Future work succeeds when it starts from fresh Git, GitHub, CI,
+and contract measurements, preserves the verified workflow/security boundary,
+and does not repeat this integrated work.
 
 ## Current position
 
@@ -34,10 +33,12 @@ hosted jobs without changing any other workflow boundary.
   diagnostics. Updating the two checkout steps restored PowerShell 7 and 5.1
   readiness without changing triggers, permissions, jobs, runners, timeouts,
   steps, or `persist-credentials: false`.
-- Final candidate readiness, repository scans, Gitleaks, Semgrep, encoding,
-  and whitespace checks passed. Two independent read-only reviews found no
-  P0, P1, P2, or P3 issue. Pull-request CI, merge, and post-main evidence
-  remain pending.
+- Pull request #20 merged the reviewed feature commit as
+  `b41591039a39ee2a5068e7c46001431e4010d32d`. Its pull-request head run and
+  exact post-main run passed all four hosted jobs; the feature and merge trees
+  were identical.
+- Post-main readiness and repository scans passed under PowerShell 7 and 5.1.
+  No open source, runtime, or documentation change remains in this work unit.
 
 ## Verified evidence used by this work unit
 
@@ -52,6 +53,12 @@ hosted jobs without changing any other workflow boundary.
   line-ending, NUL, and whitespace checks passed.
 - Two independent read-only reviews of the same staged candidate reported no
   P0, P1, P2, or P3 issue.
+- Pull-request head run `30740612980` passed Windows PowerShell 7, Windows
+  PowerShell 5.1, Ubuntu, and macOS on feature commit `9174160`.
+- Post-main run `30740886674` passed the same four jobs on merge commit
+  `b41591039a39ee2a5068e7c46001431e4010d32d`.
+- On that merge commit, post-main readiness passed under PowerShell 7 and 5.1
+  in 1.6 and 1.0 seconds; repository scans passed in 16.9 and 10.1 seconds.
 - Runs `30341569740` and `30350539529` each had one failed job and remain
   excluded from passing evidence.
 
@@ -79,7 +86,8 @@ hosted jobs without changing any other workflow boundary.
 
 ## Next step
 
-1. Push one focused pull request, verify all four hosted jobs on its exact
-   head, merge, and verify the post-main run.
-2. Sync integration evidence, clean the task branch, and return the repository
-   to its measured wait state. Do not retry `actionlint` in this work unit.
+1. Before selecting another work unit, remeasure Git status, default-branch
+   drift, open issues and pull requests, and the latest exact-main CI result.
+2. If those measurements reveal no safe contract gap, leave this repository
+   unchanged and continue the cross-project development loop. `actionlint`
+   remains unconfirmed and must not be represented as passing evidence.
